@@ -12,6 +12,7 @@ from agent.action_safety import (
     ActionSafety,
     is_cancellation,
 )
+from cloud.cloud_intelligence import format_size
 
 from agent.templates import (
     build_storage_prompt,
@@ -1651,6 +1652,680 @@ Answer naturally as a laptop assistant.
 
         return "\n".join(lines)
 
+    # =========================================================
+    # CLOUD STORAGE INTELLIGENCE (READ-ONLY, DETERMINISTIC)
+    # =========================================================
+    # Storage facts are authoritative numbers. Like health
+    # reports, they are formatted deterministically and are
+    # NEVER sent to the AI for calculation, so the AI can
+    # never invent quotas, sizes, or accounts.
+    # =========================================================
+
+    def _cloud_entry_line(self, entry):
+        """
+        Deterministic one-line description of one
+        account's storage entry.
+        """
+
+        label = entry.get(
+            "label",
+            entry.get("account_id", "unknown account"),
+        )
+
+        status = entry.get("status")
+
+        if status == "failed":
+
+            error = entry.get("error") or (
+                "could not be read"
+            )
+
+            return f"{label}: failed ({error})"
+
+        if status == "unavailable":
+
+            return (
+                f"{label}: storage information "
+                f"unavailable"
+            )
+
+        storage = entry.get("storage") or {}
+
+        used = storage.get("used_bytes")
+
+        free = storage.get("free_bytes")
+
+        total = storage.get("total_bytes")
+
+        parts = []
+
+        if used is not None:
+
+            line_part = f"{format_size(used)} used"
+
+            if (
+                total is not None
+                and total > 0
+            ):
+
+                percent = (used * 100.0) / total
+
+                line_part += (
+                    f" ({percent:.0f}% used)"
+                )
+
+            parts.append(line_part)
+
+        if free is not None:
+
+            parts.append(
+                f"{format_size(free)} free"
+            )
+
+        if total is not None:
+
+            parts.append(
+                f"of {format_size(total)} total"
+            )
+
+        if not parts:
+
+            return (
+                f"{label}: storage information "
+                f"unavailable"
+            )
+
+        return f"{label}: " + ", ".join(parts)
+
+    def _cloud_totals_lines(self, totals):
+        """
+        Deterministic lines describing known totals and
+        explicitly excluded accounts.
+        """
+
+        lines = []
+
+        known_used = totals.get("known_used_bytes")
+
+        known_free = totals.get("known_free_bytes")
+
+        excluded = totals.get("excluded_accounts") or []
+
+        if not excluded:
+
+            if known_used is not None:
+
+                lines.append(
+                    "Known total used: "
+                    f"{format_size(known_used)}"
+                )
+
+            if known_free is not None:
+
+                lines.append(
+                    "Known total free space: "
+                    f"{format_size(known_free)}"
+                )
+
+        else:
+
+            # Incomplete data must never look complete.
+
+            included_count = len(
+                totals.get("included_account_ids") or []
+            )
+
+            lines.append(
+                f"Known free space "
+                f"(from {included_count} available "
+                f"account(s)): "
+                + (
+                    format_size(known_free)
+                    if known_free is not None
+                    else "unknown"
+                )
+            )
+
+            for account in excluded:
+
+                reason = account.get("error") or (
+                    account.get("status", "unavailable")
+                )
+
+                lines.append(
+                    f"Not included: "
+                    f"{account.get('label', account.get('account_id'))} "
+                    f"({reason})"
+                )
+
+        return lines
+
+    def _handle_cloud_storage(self, decision):
+        """
+        Deterministic cloud storage quota/summary answer.
+        """
+
+        selector = decision.get("selector")
+
+        if selector:
+
+            tool_data = (
+                self.router.execute_cloud_storage(
+                    selector=selector,
+                )
+            )
+
+        else:
+
+            tool_data = (
+                self.router.execute_cloud_storage()
+            )
+
+        tool_data = ensure_result(
+            tool_data,
+            "cloud_storage",
+        )
+
+        if tool_data.get("needs_selection"):
+
+            return self._list_accounts_message(
+                "I found multiple connected Google "
+                "Drive accounts."
+            )
+
+        if not is_successful_result(tool_data):
+
+            reason = tool_data.get(
+                "error",
+                "Unknown error.",
+            )
+
+            message = (
+                "I couldn't read your Google Drive "
+                f"storage.\n\nReason: {reason}"
+            )
+
+            accounts = tool_data.get("accounts")
+
+            if accounts:
+
+                listed = self._list_accounts_message(
+                    ""
+                )
+
+                message += "\n\n" + listed.strip()
+
+            return message
+
+        # Single-account result vs multi-account summary.
+
+        if "entry" in tool_data:
+
+            entries = [tool_data["entry"]]
+
+            totals = {
+                "known_used_bytes": entries[0][
+                    "storage"
+                ]["used_bytes"],
+                "known_free_bytes": entries[0][
+                    "storage"
+                ]["free_bytes"],
+                "included_account_ids": [
+                    entries[0]["account_id"]
+                ],
+                "excluded_accounts": [],
+            }
+
+            insights = {}
+
+        else:
+
+            entries = tool_data.get("accounts", [])
+
+            totals = tool_data.get("totals") or {}
+
+            insights = (
+                tool_data.get("insights") or {}
+            )
+
+        lines = ["Cloud Storage Summary", ""]
+
+        for entry in entries:
+
+            lines.append(
+                self._cloud_entry_line(entry)
+            )
+
+        lines.append("")
+
+        lines.extend(
+            self._cloud_totals_lines(totals)
+        )
+
+        most_free = insights.get(
+            "most_free_account"
+        )
+
+        largest_used = insights.get(
+            "largest_used_account"
+        )
+
+        if most_free:
+
+            lines.append(
+                f"Most free space: "
+                f"{most_free.get('label')} "
+                f"({format_size(most_free.get('free_bytes'))} "
+                f"free)"
+            )
+
+        if largest_used:
+
+            lines.append(
+                f"Largest storage use: "
+                f"{largest_used.get('label')} "
+                f"({format_size(largest_used.get('used_bytes'))} "
+                f"used)"
+            )
+
+        return "\n".join(lines)
+
+    def _handle_cloud_large_files(self, decision):
+        """
+        Deterministic cross-account large-file report.
+
+        Metadata only: nothing is ever downloaded to
+        measure sizes.
+        """
+
+        tool_data = ensure_result(
+            self.router.execute_cloud_large_files(
+                min_mb=decision.get("min_mb"),
+                selector=decision.get("selector"),
+            ),
+            "cloud_large_files",
+        )
+
+        if tool_data.get("needs_selection"):
+
+            return self._list_accounts_message(
+                "I found multiple connected Google "
+                "Drive accounts."
+            )
+
+        if not is_successful_result(tool_data):
+
+            reason = tool_data.get(
+                "error",
+                "Unknown error.",
+            )
+
+            return (
+                "I couldn't analyze large files in "
+                f"your Google Drive.\n\nReason: {reason}"
+            )
+
+        min_mb = tool_data.get("min_mb")
+
+        files = tool_data.get("files", [])
+
+        succeeded = tool_data.get(
+            "succeeded_accounts",
+            [],
+        )
+
+        header_threshold = (
+            f"{min_mb:g} MB"
+            if isinstance(min_mb, (int, float))
+            else "the selected size"
+        )
+
+        lines = [
+            f"Large cloud files over "
+            f"{header_threshold} "
+            f"(metadata only):",
+            "",
+        ]
+
+        if not files:
+
+            lines.append(
+                "No matching large files were found."
+            )
+
+        shown = 0
+
+        for file in files[:10]:
+
+            shown += 1
+
+            label = (
+                file.get("account_email")
+                or file.get("account_id")
+                or "unknown account"
+            )
+
+            modified = file.get("modified_time")
+
+            line = (
+                f"{shown}. {file.get('name', 'Unknown file')} - "
+                f"{format_size(file.get('size_bytes'))} - "
+                f"{label}"
+            )
+
+            if modified:
+                line += f" (modified {modified})"
+
+            lines.append(line)
+
+        hidden_count = len(files) - shown
+
+        if hidden_count > 0:
+
+            lines.append(
+                f"...and {hidden_count} more."
+            )
+
+        errors = tool_data.get("account_errors") or []
+
+        if errors:
+
+            lines.append("")
+
+            for error in errors:
+
+                lines.append(
+                    f"Not included: "
+                    f"{error.get('account_id')} "
+                    f"({error.get('error')})"
+                )
+
+        lines.extend([
+            "",
+            "This analysis is read-only; no files were "
+            "downloaded or changed.",
+        ])
+
+        return "\n".join(lines)
+
+    def _handle_cloud_duplicates(self, decision):
+        """
+        Deterministic duplicate-candidate report.
+
+        Candidates come from name + exact size metadata
+        matching. They are never called confirmed and
+        nothing is ever deleted.
+        """
+
+        tool_data = ensure_result(
+            self.router.execute_cloud_duplicates(
+                selector=decision.get("selector"),
+            ),
+            "cloud_duplicates",
+        )
+
+        if tool_data.get("needs_selection"):
+
+            return self._list_accounts_message(
+                "I found multiple connected Google "
+                "Drive accounts."
+            )
+
+        if not is_successful_result(tool_data):
+
+            reason = tool_data.get(
+                "error",
+                "Unknown error.",
+            )
+
+            return (
+                "I couldn't analyze duplicate "
+                f"candidates.\n\nReason: {reason}"
+            )
+
+        groups = tool_data.get("groups", [])
+
+        scanned = tool_data.get("files_scanned", 0)
+
+        lines = [
+            f"Possible duplicates "
+            f"(scanned {scanned} file(s) by name + size):",
+            "",
+        ]
+
+        if not groups:
+
+            lines.append(
+                "No duplicate candidates were found."
+            )
+
+        shown = 0
+
+        for group in groups[:10]:
+
+            shown += 1
+
+            lines.append(
+                f"{shown}. '{group.get('name')}' - "
+                f"{format_size(group.get('size_bytes'))} - "
+                f"{group.get('count')} copies "
+                f"(possible duplicate)"
+            )
+
+            for copy in group.get("copies", [])[:4]:
+
+                copy_label = (
+                    copy.get("account_email")
+                    or copy.get("account_id")
+                    or "unknown account"
+                )
+
+                lines.append(
+                    f"   - {copy_label} "
+                    f"(file id {copy.get('file_id')})"
+                )
+
+            extra_copies = (
+                group.get("count", 0)
+                - min(len(group.get("copies", [])), 4)
+            )
+
+            if extra_copies > 0:
+
+                lines.append(
+                    f"   - ...and {extra_copies} more "
+                    f"copy/copies"
+                )
+
+        hidden_groups = len(groups) - shown
+
+        if hidden_groups > 0:
+
+            lines.append(
+                f"...and {hidden_groups} more group(s)."
+            )
+
+        total_reclaim = tool_data.get(
+            "potential_reclaim_bytes"
+        )
+
+        lines.append("")
+
+        if total_reclaim:
+
+            lines.append(
+                f"Potential duplicate space: "
+                f"{format_size(total_reclaim)}"
+            )
+
+        errors = tool_data.get("account_errors") or []
+
+        for error in errors:
+
+            lines.append(
+                f"Not included: "
+                f"{error.get('account_id')} "
+                f"({error.get('error')})"
+            )
+
+        lines.extend([
+            "",
+            "These are candidates based on name and "
+            "size only - NOT confirmed duplicates.",
+            "Nothing was deleted or modified.",
+        ])
+
+        return "\n".join(lines)
+
+    def _handle_storage_overview(self):
+        """
+        Unified LOCAL + CLOUD storage view.
+
+        Local disks and cloud quotas are separate
+        resources; they are always reported as separate
+        sections and never merged into one number.
+        """
+
+        local_result = ensure_result(
+            self.router.execute("storage"),
+            "storage",
+        )
+
+        cloud_result = ensure_result(
+            self.router.execute_cloud_storage(),
+            "cloud_storage",
+        )
+
+        lines = ["Storage Overview", "", "LOCAL"]
+
+        if is_successful_result(local_result):
+
+            data = local_result.get("data") or {}
+
+            drives = data.get("drives") or []
+
+            if not drives:
+
+                lines.append(
+                    "No local drive information was "
+                    "reported."
+                )
+
+            for drive in drives:
+
+                if not isinstance(drive, dict):
+                    continue
+
+                name = drive.get(
+                    "drive",
+                    drive.get("device", "drive"),
+                )
+
+                percent = drive.get(
+                    "percent_used",
+                    drive.get("usage_percent"),
+                )
+
+                free_gb = drive.get("free_gb")
+
+                total_gb = drive.get("total_gb")
+
+                line = f"{name}: "
+
+                if percent is not None:
+
+                    try:
+                        line += (
+                            f"{float(percent):.0f}% used"
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        line += "usage unknown"
+
+                if free_gb is not None:
+
+                    line += (
+                        f" ({free_gb} GB free"
+                    )
+
+                    if total_gb is not None:
+
+                        line += (
+                            f" of {total_gb} GB"
+                        )
+
+                    line += ")"
+
+                if percent is None and free_gb is None:
+
+                    line += "usage unknown"
+
+                lines.append(line)
+
+        else:
+
+            lines.append(
+                "Local storage could not be read "
+                f"({local_result.get('error', 'unknown error')})."
+            )
+
+        lines.append("")
+        lines.append("CLOUD")
+
+        if is_successful_result(cloud_result):
+
+            entries = cloud_result.get(
+                "accounts",
+                [],
+            )
+
+            if not entries:
+
+                lines.append(
+                    "No connected Google Drive "
+                    "accounts."
+                )
+
+            for entry in entries:
+
+                lines.append(
+                    self._cloud_entry_line(entry)
+                )
+
+            lines.append("")
+
+            lines.extend(
+                self._cloud_totals_lines(
+                    cloud_result.get("totals") or {}
+                )
+            )
+
+        elif cloud_result.get("needs_selection"):
+
+            lines.append(
+                self._list_accounts_message(
+                    "Multiple Google Drive accounts "
+                    "are connected:"
+                )
+            )
+
+        else:
+
+            lines.append(
+                "Cloud storage could not be read "
+                f"({cloud_result.get('error', 'unknown error')})."
+            )
+
+        lines.extend([
+            "",
+            "Local disks and cloud quota are separate "
+            "resources and are reported separately.",
+        ])
+
+        return "\n".join(lines)
+
     def _propose_cloud_delete(
         self,
         query,
@@ -2130,6 +2805,39 @@ Answer naturally as a laptop assistant.
             elif tool == "cleanup_delete":
 
                 return self._propose_local_cleanup()
+
+            # -------------------------------------------------
+            # Cloud Storage Intelligence (READ-ONLY)
+            #
+            # Deterministic analytics: quota summaries,
+            # large-file metadata, duplicate candidates,
+            # and the unified local+cloud overview.
+            # These never mutate cloud or local data, so
+            # they are answered deterministically without
+            # AI calculation.
+            # -------------------------------------------------
+
+            elif tool == "cloud_storage":
+
+                return self._handle_cloud_storage(
+                    decision
+                )
+
+            elif tool == "cloud_large_files":
+
+                return self._handle_cloud_large_files(
+                    decision
+                )
+
+            elif tool == "cloud_duplicates":
+
+                return self._handle_cloud_duplicates(
+                    decision
+                )
+
+            elif tool == "storage_overview":
+
+                return self._handle_storage_overview()
 
             # -------------------------------------------------
             # All local tools

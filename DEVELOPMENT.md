@@ -127,3 +127,83 @@ Milestone 7 test coverage lives in:
 
 All cloud interaction in tests uses injected fakes or stubs;
 no test authenticates with or mutates real cloud storage.
+
+Milestone 8 - Cloud storage intelligence and cross-account analysis
+
+Milestone 8 adds a strictly READ-ONLY analytics layer on top
+of the Milestone 7 multi-account architecture. It answers
+storage questions with deterministic numbers and never
+mutates local or cloud data.
+
+### Components
+
+- `cloud/google_drive.py` (additive only)
+  Three read-only provider capabilities:
+  `get_storage_info` (quota via the Drive about endpoint),
+  `list_large_files` (metadata ordered by quotaBytesUsed),
+  and `list_all_files_metadata`. No method downloads file
+  contents.
+- `cloud/cloud_intelligence.py`
+  `CloudStorageIntelligence` turns per-account metadata into
+  deterministic cross-account facts: per-account quota
+  entries, a multi-account summary with honest partial
+  failures, large-file analysis, duplicate CANDIDATES by
+  name + exact size, and insights. `format_size` gives one
+  consistent binary-unit rendering for user-facing text.
+  Unknown values stay unknown; nothing is guessed,
+  defaulted to zero, or invented.
+- `agent/tool_router.py`
+  Adds `execute_cloud_storage`, `execute_cloud_large_files`,
+  and `execute_cloud_duplicates`. Analytics default to ALL
+  connected accounts because they are pure reads;
+  an explicit selector still pins one account. The
+  intelligence binding follows the live drive manager so a
+  replaced manager can never leave stale analysis.
+- `agent/planner.py`
+  New intents: `cloud_storage` (quota/space/free-space
+  questions), `cloud_large_files` ("files larger than N
+  MB/GB/TB", default threshold 100 MB), `cloud_duplicates`,
+  and `storage_overview` (unified local + cloud view).
+- `agent/ai_agent.py`
+  Deterministic handlers for all four tools. Like health
+  reports, these answers never go through the AI: numbers
+  are formatted by code, so the model can never invent
+  quotas, sizes, or account identities.
+
+### Honesty rules for aggregated data
+
+- Every result keeps its originating account identity;
+  files from different accounts are never merged into one
+  ambiguous record.
+- One failing account never hides healthy accounts: partial
+  results stay structured, excluded accounts are listed with
+  their reason, and totals include ONLY known values.
+  "Unavailable" is never reported as zero.
+- Duplicate candidates are always labeled possible
+  (same name + same size), `confirmed` is always False, and
+  nothing is ever deleted based on this analysis.
+
+### Rate and safety profile
+
+Analytics use bounded metadata queries (per-account listing
+limits), run only when the user asks, and never spawn
+background jobs, crawlers, or content reads. No new
+dependencies were added.
+
+### Tests
+
+Milestone 8 test coverage lives in:
+
+- `tests/test_cloud_quota.py`
+- `tests/test_cloud_storage_summary.py`
+- `tests/test_cloud_cross_search_m8.py`
+- `tests/test_cloud_large_files.py`
+- `tests/test_cloud_duplicates.py`
+- `tests/test_cloud_insights.py`
+- `tests/test_planner_milestone8.py`
+- `tests/test_agent_cloud_intelligence.py`
+
+All tests use injected fakes or stubs; they assert that no
+download, upload, delete, or AI call ever happens during
+analytics, and that partial failures remain explicit in
+user-facing output.

@@ -43,6 +43,39 @@ class Planner:
         r"(?:google\s+)?drives?\b"
     )
 
+    # Cloud context words for storage-intelligence
+    # requests. A question about "storage" or "space"
+    # only becomes a CLOUD question when one of these
+    # is present; otherwise local storage wins.
+
+    CLOUD_CONTEXT_PATTERN = re.compile(
+        r"\b(?:"
+        r"google\s+drives?"
+        r"|gdrive"
+        r"|cloud"
+        r"|google\s+accounts?"
+        r"|accounts?\b"
+        r")"
+    )
+
+    # Storage/quota vocabulary.
+
+    STORAGE_TOPIC_PATTERN = re.compile(
+        r"\b(?:storage|space|quota|usage|used|free)\b"
+    )
+
+    # Destructive/cleanup phrasing always keeps its
+    # Milestone 6 routing even when cloud wording is
+    # also present.
+
+    CLEANUP_INTENT_PATTERN = re.compile(
+        r"\bfree\s+up\b|\bclean(?:\s*up)?\b"
+    )
+
+    THRESHOLD_PATTERN = re.compile(
+        r"(\d+(?:\.\d+)?)\s*(kb|mb|gb|tb)\b"
+    )
+
     # Local machine drive references.
     #
     # Examples:
@@ -408,6 +441,155 @@ class Planner:
                 "action": "upload",
                 "path": file_path or "",
                 "account_refs": account_refs,
+            }
+
+        # =====================================================
+        # CLOUD STORAGE INTELLIGENCE (READ-ONLY)
+        # =====================================================
+        # Quota, large-file and duplicate questions are
+        # analytics: they never mutate anything.
+        #
+        # Local storage wording always wins for local
+        # topics ("How much space on D?" stays local),
+        # and cleanup phrasing keeps its Milestone 6
+        # routing.
+        # =====================================================
+
+        cloud_context = bool(
+            self.CLOUD_CONTEXT_PATTERN.search(text)
+        )
+
+        storage_topic = bool(
+            self.STORAGE_TOPIC_PATTERN.search(text)
+        )
+
+        cleanup_intent = bool(
+            self.CLEANUP_INTENT_PATTERN.search(text)
+        )
+
+        local_topic = bool(
+            self.LOCAL_DRIVE_PATTERN.search(text)
+        )
+
+        # -------------------------------------------------
+        # Unified local + cloud overview.
+        # -------------------------------------------------
+
+        if re.search(
+            r"\boverview\b"
+            r"|\blocal\s+and\s+cloud\b"
+            r"|\boverall\s+storage\b",
+            text,
+        ) and not cleanup_intent:
+
+            return {
+                "tool": "storage_overview",
+                "action": "overview",
+            }
+
+        # -------------------------------------------------
+        # Cross-account duplicate candidates.
+        # -------------------------------------------------
+
+        if (
+            re.search(r"\bduplicates?\b", text)
+            and cloud_context
+            and not cleanup_intent
+            and not local_topic
+        ):
+
+            return {
+                "tool": "cloud_duplicates",
+                "action": "analyze",
+                "selector": (
+                    account_refs[0]
+                    if account_refs
+                    else None
+                ),
+            }
+
+        # -------------------------------------------------
+        # Cross-account large files (with optional
+        # threshold like "500 MB" / "1 GB").
+        # -------------------------------------------------
+
+        large_files_intent = (
+            re.search(
+                r"\b(?:largest|biggest|large)\s+files?\b",
+                text,
+            )
+            or re.search(
+                r"files?\s+(?:larger|bigger)\s+than\b",
+                text,
+            )
+        )
+
+        if (
+            large_files_intent
+            and cloud_context
+            and not cleanup_intent
+            and not local_topic
+        ):
+
+            min_mb = None
+
+            threshold = self.THRESHOLD_PATTERN.search(
+                text
+            )
+
+            if threshold:
+
+                value = float(threshold.group(1))
+
+                unit = threshold.group(2)
+
+                factor = {
+                    "kb": 1.0 / 1024,
+                    "mb": 1.0,
+                    "gb": 1024.0,
+                    "tb": 1024.0 * 1024,
+                }[unit]
+
+                min_mb = round(value * factor, 4)
+
+            return {
+                "tool": "cloud_large_files",
+                "action": "analyze",
+                "min_mb": min_mb,
+                "selector": (
+                    account_refs[0]
+                    if account_refs
+                    else None
+                ),
+            }
+
+        # -------------------------------------------------
+        # Cloud storage quota / summary questions.
+        #
+        # Examples:
+        #     How much Google Drive storage do I have?
+        #     How much space is left across my Google
+        #     accounts?
+        #     Which account has the most free space?
+        #     Give me a storage report for all my
+        #     accounts.
+        # -------------------------------------------------
+
+        if (
+            storage_topic
+            and cloud_context
+            and not cleanup_intent
+            and not local_topic
+        ):
+
+            return {
+                "tool": "cloud_storage",
+                "action": "analyze",
+                "selector": (
+                    account_refs[0]
+                    if account_refs
+                    else None
+                ),
             }
 
         # =====================================================

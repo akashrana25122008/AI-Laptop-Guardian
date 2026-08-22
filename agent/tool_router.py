@@ -5,6 +5,9 @@ from agent.result_contract import (
 
 from cloud.google_drive import GoogleDriveProvider
 from cloud.multi_drive import MultiAccountDriveManager
+from cloud.cloud_intelligence import (
+    CloudStorageIntelligence,
+)
 
 from tools.battery.battery import BatteryTool
 from tools.cpu.cpu import CPUTool
@@ -100,6 +103,48 @@ class ToolRouter:
         # =====================================================
 
         self.drive_manager = MultiAccountDriveManager()
+
+        # =====================================================
+        # CLOUD STORAGE INTELLIGENCE (READ-ONLY)
+        #
+        # Deterministic cross-account analysis built on the
+        # multi-account manager. This layer never mutates
+        # cloud data. It is kept in sync with drive_manager
+        # (see the cloud_intelligence property below) so a
+        # replaced manager can never leave stale analysis.
+        # =====================================================
+
+        self._cloud_intelligence = (
+            CloudStorageIntelligence(
+                self.drive_manager
+            )
+        )
+
+    @property
+    def cloud_intelligence(self):
+        """
+        Return the intelligence layer bound to the CURRENT
+        drive manager.
+
+        If drive_manager was replaced (tests, future
+        account reloads), the binding is rebuilt so
+        analytics always inspect live accounts and never a
+        detached snapshot.
+        """
+
+        if (
+            self._cloud_intelligence is None
+            or self._cloud_intelligence.manager
+            is not self.drive_manager
+        ):
+
+            self._cloud_intelligence = (
+                CloudStorageIntelligence(
+                    self.drive_manager
+                )
+            )
+
+        return self._cloud_intelligence
 
     # =========================================================
     # RESULT NORMALIZATION
@@ -481,6 +526,199 @@ class ToolRouter:
             return None
 
         return account.to_dict()
+
+    # =========================================================
+    # CLOUD STORAGE INTELLIGENCE (READ-ONLY)
+    # =========================================================
+
+    def execute_cloud_storage(
+        self,
+        selector=None,
+        scope_all=False,
+    ):
+        """
+        Read-only storage quota summary.
+
+            - explicit account -> that account only,
+            - 'all' wording    -> every connected account,
+            - single account   -> used automatically,
+            - multiple accounts without a choice ->
+              needs_selection (never a silent pick).
+        """
+
+        if selector is not None:
+
+            account = (
+                self.drive_manager.registry.resolve_selector(
+                    selector
+                )
+            )
+
+            if account is None:
+
+                return {
+                    "success": False,
+                    "tool": "cloud_storage",
+                    "error": (
+                        f"Could not find a connected "
+                        f"account matching "
+                        f"'{selector}'."
+                    ),
+                    "accounts": (
+                        self.describe_connected_accounts()
+                    ),
+                }
+
+            return (
+                self.cloud_intelligence
+                .get_account_storage(account.id)
+            )
+
+        # Read-only ANALYTICS are portfolio-wide by
+        # default: they aggregate every connected
+        # account and never mutate anything, so asking
+        # "which account?" adds friction without adding
+        # safety. Explicit selectors above still pin a
+        # single exact account.
+
+        result = (
+            self.cloud_intelligence.summarize_accounts(
+                scope_all=True,
+            )
+        )
+
+        if (
+            result.get("success")
+            and result.get("error") is None
+        ):
+            result.pop("error", None)
+
+        return result
+
+    def execute_cloud_large_files(
+        self,
+        min_mb=None,
+        selector=None,
+        scope_all=False,
+    ):
+        """
+        Read-only large-file analysis across accounts.
+
+        Metadata only: files are never downloaded and
+        their contents are never read.
+        """
+
+        account_ids = None
+
+        if selector is not None:
+
+            account = (
+                self.drive_manager.registry.resolve_selector(
+                    selector
+                )
+            )
+
+            if account is None:
+
+                return {
+                    "success": False,
+                    "tool": "cloud_large_files",
+                    "error": (
+                        f"Could not find a connected "
+                        f"account matching "
+                        f"'{selector}'."
+                    ),
+                    "accounts": (
+                        self.describe_connected_accounts()
+                    ),
+                }
+
+            account_ids = [account.id]
+
+        # Same read-only portfolio default as the
+        # storage summary: analyze ALL connected
+        # accounts unless one is explicitly named.
+
+        result = (
+            self.cloud_intelligence.find_large_files(
+                min_mb=min_mb,
+                account_ids=account_ids,
+                scope_all=(
+                    True if account_ids is None else False
+                ),
+            )
+        )
+
+        if (
+            result.get("success")
+            and result.get("error") is None
+        ):
+            result.pop("error", None)
+
+        return result
+
+    def execute_cloud_duplicates(
+        self,
+        selector=None,
+        scope_all=False,
+    ):
+        """
+        Read-only duplicate-candidate analysis across
+        accounts.
+
+        Candidates are based on name + exact size and are
+        never treated as confirmed duplicates. Nothing is
+        ever deleted or modified by this operation.
+        """
+
+        account_ids = None
+
+        if selector is not None:
+
+            account = (
+                self.drive_manager.registry.resolve_selector(
+                    selector
+                )
+            )
+
+            if account is None:
+
+                return {
+                    "success": False,
+                    "tool": "cloud_duplicates",
+                    "error": (
+                        f"Could not find a connected "
+                        f"account matching "
+                        f"'{selector}'."
+                    ),
+                    "accounts": (
+                        self.describe_connected_accounts()
+                    ),
+                }
+
+            account_ids = [account.id]
+
+        # Same read-only portfolio default as the
+        # storage summary: analyze ALL connected
+        # accounts unless one is explicitly named.
+
+        result = (
+            self.cloud_intelligence
+            .find_duplicate_candidates(
+                account_ids=account_ids,
+                scope_all=(
+                    True if account_ids is None else False
+                ),
+            )
+        )
+
+        if (
+            result.get("success")
+            and result.get("error") is None
+        ):
+            result.pop("error", None)
+
+        return result
 
     # =========================================================
     # LARGE FILES (READ-ONLY)

@@ -1028,6 +1028,305 @@ class GoogleDriveProvider:
         )
 
     # =========================================================
+    # STORAGE QUOTA (READ-ONLY)
+    # =========================================================
+
+    def get_storage_info(self):
+        """
+        Read-only Google Drive storage quota information.
+
+        Returns raw quota values when Google provides them.
+        Any value Google does not provide stays None; it is
+        NEVER guessed or defaulted to zero.
+
+        This method only reads metadata. It never modifies,
+        uploads, downloads, or deletes anything.
+        """
+
+        if self.service is None:
+            self.authenticate()
+
+        try:
+            about = (
+                self.service.about()
+                .get(
+                    fields=(
+                        "user(displayName,emailAddress),"
+                        "storageQuota"
+                    )
+                )
+                .execute()
+            )
+
+            quota = about.get(
+                "storageQuota",
+                {},
+            ) or {}
+
+            user = about.get(
+                "user",
+                {},
+            ) or {}
+
+            def _int_or_none(value):
+
+                if value is None or value == "":
+                    return None
+
+                try:
+                    return int(value)
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    return None
+
+            return {
+                "success": True,
+                "tool": "cloud_storage",
+                "email": user.get(
+                    "emailAddress"
+                ),
+                "display_name": user.get(
+                    "displayName"
+                ),
+                "total_bytes": _int_or_none(
+                    quota.get("limit")
+                ),
+                "used_bytes": _int_or_none(
+                    quota.get("usage")
+                ),
+                "drive_used_bytes": _int_or_none(
+                    quota.get("usageInDrive")
+                ),
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "tool": "cloud_storage",
+                "error": str(e),
+            }
+
+    # =========================================================
+    # LARGE FILES (READ-ONLY, METADATA ONLY)
+    # =========================================================
+
+    def list_large_files(
+        self,
+        min_size_bytes=0,
+        limit=50,
+    ):
+        """
+        List the largest non-trashed files by metadata.
+
+        Files are never downloaded and their contents are
+        never read; only Drive metadata is requested.
+
+        Files without a meaningful reported size are
+        skipped rather than guessed.
+        """
+
+        if self.service is None:
+            self.authenticate()
+
+        try:
+
+            min_bytes = (
+                int(min_size_bytes)
+                if min_size_bytes
+                else 0
+            )
+
+            page_size = max(
+                1,
+                min(int(limit), 1000),
+            )
+
+            response = (
+                self.service.files()
+                .list(
+                    q="trashed = false",
+                    spaces="drive",
+                    fields=(
+                        "files("
+                        "id,"
+                        "name,"
+                        "mimeType,"
+                        "size,"
+                        "modifiedTime"
+                        ")"
+                    ),
+                    orderBy="quotaBytesUsed desc",
+                    pageSize=page_size,
+                )
+                .execute()
+            )
+
+            raw_files = response.get(
+                "files",
+                [],
+            )
+
+            results = []
+
+            for file in raw_files:
+
+                try:
+                    size_bytes = int(
+                        file.get("size", 0)
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                # Workspace documents report no size;
+                # they are skipped instead of being
+                # treated as zero-byte files.
+
+                if size_bytes <= 0:
+                    continue
+
+                if size_bytes < min_bytes:
+                    continue
+
+                results.append(
+                    {
+                        "id": file.get("id"),
+                        "name": file.get(
+                            "name"
+                        ),
+                        "mime_type": file.get(
+                            "mimeType"
+                        ),
+                        "size_bytes": size_bytes,
+                        "modified_time": file.get(
+                            "modifiedTime"
+                        ),
+                    }
+                )
+
+                if len(results) >= int(limit):
+                    break
+
+            return {
+                "success": True,
+                "tool": "cloud_large_files",
+                "count": len(results),
+                "files": results,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "tool": "cloud_large_files",
+                "error": str(e),
+            }
+
+    # =========================================================
+    # FILE METADATA LISTING (READ-ONLY)
+    # =========================================================
+
+    def list_all_files_metadata(self, limit=200):
+        """
+        List basic file metadata for duplicate analysis.
+
+        Read-only. No file contents are read and no
+        content hashes are computed at this level.
+        """
+
+        if self.service is None:
+            self.authenticate()
+
+        try:
+
+            page_size = max(
+                1,
+                min(int(limit), 1000),
+            )
+
+            response = (
+                self.service.files()
+                .list(
+                    q="trashed = false",
+                    spaces="drive",
+                    fields=(
+                        "files("
+                        "id,"
+                        "name,"
+                        "mimeType,"
+                        "size,"
+                        "modifiedTime"
+                        ")"
+                    ),
+                    orderBy="folder desc, name asc",
+                    pageSize=page_size,
+                )
+                .execute()
+            )
+
+            raw_files = response.get(
+                "files",
+                [],
+            )
+
+            results = []
+
+            for file in raw_files:
+
+                try:
+                    size_bytes = int(
+                        file.get("size", 0)
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    size_bytes = None
+
+                mime_type = file.get(
+                    "mimeType"
+                )
+
+                if mime_type == (
+                    "application/vnd.google-apps.folder"
+                ):
+                    continue
+
+                results.append(
+                    {
+                        "id": file.get("id"),
+                        "name": file.get(
+                            "name"
+                        ),
+                        "mime_type": mime_type,
+                        "size_bytes": size_bytes,
+                        "modified_time": file.get(
+                            "modifiedTime"
+                        ),
+                    }
+                )
+
+                if len(results) >= int(limit):
+                    break
+
+            return {
+                "success": True,
+                "tool": "cloud_metadata",
+                "count": len(results),
+                "files": results,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "tool": "cloud_metadata",
+                "error": str(e),
+            }
+
+    # =========================================================
     # RECENT FILES
     # =========================================================
 
