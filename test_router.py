@@ -5,7 +5,7 @@ def main():
 
     router = ToolRouter()
 
-    report = router.get_storage_report()
+    report = router.execute("storage")
 
     print(report)
 

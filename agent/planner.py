@@ -7,6 +7,116 @@ class Planner:
     Decides which tool should handle the user's request.
     """
 
+    # =====================================================
+    # INTENT HELPERS
+    # =====================================================
+
+    # Explicit cloud targets.
+    #
+    # Examples:
+    # Search my Google Drive
+    # Download a file from gdrive
+    # Upload report.pdf to the cloud
+
+    CLOUD_EXPLICIT_PATTERN = re.compile(
+        r"\b(?:google\s+drive|gdrive|cloud)\b"
+    )
+
+    # Local machine drive references.
+    #
+    # Examples:
+    # C drive, D: drive, c-drive
+    # disk, hard disk, ssd, hdd
+    # partition, volume, local drive
+
+    LOCAL_DRIVE_PATTERN = re.compile(
+        r"(?:"
+        r"(?<![a-z0-9])[a-z]\s*[:\-\\]?\s*(?:drive|disk)\b"
+        r"|\b(?:hard\s+)?disks?\b"
+        r"|\b(?:ssd|hdd|nvme)\b"
+        r"|\bpartitions?\b"
+        r"|\bvolumes?\b"
+        r"|\blocal\s+drive\b"
+        r")"
+    )
+
+    # Local storage topics. Word boundaries prevent false
+    # matches such as "temp" inside "temperature".
+
+    STORAGE_KEYWORD_PATTERN = re.compile(
+        r"\b(?:"
+        r"storages?"
+        r"|disks?"
+        r"|drives?"
+        r"|spaces?"
+        r"|temps?"
+        r"|temporary"
+        r"|large\s+files?"
+        r"|cleanup"
+        r"|clean(?:\s+up)?"
+        r"|ssd|hdd|nvme"
+        r"|partitions?"
+        r")\b"
+    )
+
+    def _targets_google_drive(self, text):
+        """
+        Decide whether a message refers to Google Drive
+        or to a local drive such as C: or D:.
+
+        Explicit cloud wording always wins:
+
+            Search my Google Drive
+
+        Local drive wording always stays local:
+
+            Why is my C drive warning?
+
+        A bare "drive" without local context is treated as
+        Google Drive so that requests such as:
+
+            Delete notes.txt from Drive
+            Download report.pdf from drive
+
+        keep working.
+        """
+
+        if self.CLOUD_EXPLICIT_PATTERN.search(text):
+            return True
+
+        if self.LOCAL_DRIVE_PATTERN.search(text):
+            return False
+
+        return bool(re.search(r"\bdrive\b", text))
+
+    def _is_cloud_search_request(self, text):
+        """
+        Decide whether a message is a Google Drive search.
+
+        Explicit cloud wording always wins:
+
+            Search my Google Drive
+            What is in my Google Drive
+
+        Otherwise a search/find verb is required together
+        with a non-local drive reference:
+
+            Search my drive for reports
+
+        A bare "drive" without a search verb describes the
+        laptop's own drive and stays local:
+
+            My drive is running out of space
+        """
+
+        if self.CLOUD_EXPLICIT_PATTERN.search(text):
+            return True
+
+        if not re.search(r"\b(?:search|find)\b", text):
+            return False
+
+        return self._targets_google_drive(text)
+
     def plan(self, user_message: str):
         text = user_message.lower().strip()
 
@@ -23,7 +133,7 @@ class Planner:
 
         if (
             re.search(r"\b(delete|remove)\b", text)
-            and re.search(r"\b(drive|google drive)\b", text)
+            and self._targets_google_drive(text)
         ):
 
             patterns = [
@@ -67,7 +177,7 @@ class Planner:
 
         if (
             re.search(r"\bdownload\b", text)
-            and re.search(r"\b(drive|google drive)\b", text)
+            and self._targets_google_drive(text)
         ):
 
             patterns = [
@@ -103,7 +213,7 @@ class Planner:
 
         if (
             re.search(r"\b(upload|backup)\b", text)
-            and re.search(r"\b(drive|google drive)\b", text)
+            and self._targets_google_drive(text)
         ):
 
             patterns = [
@@ -145,7 +255,7 @@ class Planner:
         # GOOGLE DRIVE - SEARCH
         # =====================================================
 
-        if re.search(r"\b(drive|google drive)\b", text):
+        if self._is_cloud_search_request(text):
 
             patterns = [
                 r"(?:search|find)\s+(?:for\s+)?(.+?)\s+in\s+(?:my\s+)?(?:google\s+)?drive",
@@ -243,16 +353,7 @@ class Planner:
         # STORAGE
         # =====================================================
 
-        if any(word in text for word in [
-            "storage",
-            "disk",
-            "drive",
-            "space",
-            "temp",
-            "large file",
-            "cleanup",
-            "clean",
-        ]):
+        if self.STORAGE_KEYWORD_PATTERN.search(text):
             return {
                 "tool": "storage",
                 "action": "analyze",
