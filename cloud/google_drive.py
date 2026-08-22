@@ -50,7 +50,15 @@ class GoogleDriveProvider:
         self.service = None
         self.credentials = None
 
-        self.authenticate()
+        # =================================================
+        # LAZY AUTHENTICATION
+        #
+        # Authentication is intentionally NOT performed here.
+        # Constructing the provider must stay side-effect free
+        # so that local-only requests never touch Google.
+        # Every cloud method calls authenticate() on demand
+        # when it actually needs the service.
+        # =================================================
 
     # =========================================================
     # AUTHENTICATION

@@ -237,6 +237,36 @@ class ToolRouter:
         }
 
     # =========================================================
+    # GOOGLE DRIVE DELETE (CONFIRMED TARGET ONLY)
+    # =========================================================
+
+    def execute_delete_by_id(self, file_id, name=None):
+        """
+        Delete one exact Google Drive file by ID.
+
+        This method is intentionally reachable ONLY through
+        agent.action_safety confirmation. It never searches
+        by name again, so a confirmation can never be applied
+        to a different file.
+        """
+
+        if not file_id or not str(file_id).strip():
+            return {
+                "success": False,
+                "tool": "cloud_delete",
+                "error": (
+                    "No confirmed Google Drive "
+                    "file ID provided."
+                ),
+            }
+
+        return self._run_tool(
+            "cloud_delete",
+            self.google_drive.delete_file_by_id,
+            str(file_id).strip(),
+        )
+
+    # =========================================================
     # BATTERY
     # =========================================================
 

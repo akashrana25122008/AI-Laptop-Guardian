@@ -6,6 +6,10 @@ from agent.result_contract import (
     is_successful_result,
 )
 from agent.prompt_safety import render_tool_data
+from agent.action_safety import (
+    ActionSafety,
+    is_cancellation,
+)
 
 from agent.templates import (
     build_storage_prompt,
@@ -68,6 +72,17 @@ class AIAgent:
         self.ai = OllamaClient()
         self.planner = Planner()
         self.router = ToolRouter()
+
+        # =====================================================
+        # DETERMINISTIC SAFETY LAYER
+        #
+        # Holds pending destructive actions. Natural language
+        # can propose a destructive action, but only an
+        # explicit confirmation phrase authorized through this
+        # layer may execute it.
+        # =====================================================
+
+        self.safety = ActionSafety()
 
         # =====================================================
         # SHORT-TERM GOOGLE DRIVE MEMORY
@@ -1120,6 +1135,221 @@ Answer naturally as a laptop assistant.
         )
 
     # =========================================================
+    # PENDING DESTRUCTIVE ACTION HANDLING
+    # =========================================================
+
+    def _handle_pending_action(self, user_message):
+        """
+        Resolve a pending destructive action.
+
+        Returns a response string when the message resolves
+        the pending action (confirmation or cancellation),
+        and None when the action should expire and normal
+        processing should continue.
+        """
+
+        if not self.safety.has_pending():
+            return None
+
+        if is_cancellation(user_message):
+
+            cancelled = self.safety.cancel()
+
+            return (
+                f"Cancelled. I will not delete "
+                f"'{cancelled.target_name}'.\n\n"
+                f"No files were changed."
+            )
+
+        confirmation = (
+            self.safety.validate_confirmation(
+                user_message
+            )
+        )
+
+        if confirmation is not None:
+            return self._execute_confirmed_deletion()
+
+        # Any unrelated message expires the pending action
+        # so stale confirmations can never be reused.
+
+        self.safety.clear()
+
+        return None
+
+    def _execute_confirmed_deletion(self):
+        """
+        Execute a confirmed Google Drive deletion exactly
+        once, against the exact confirmed target.
+        """
+
+        pending = self.safety.get_pending()
+
+        # Invalidate immediately: one confirmation is
+        # valid for exactly one execution attempt.
+
+        self.safety.clear()
+
+        try:
+
+            result = self.router.execute_delete_by_id(
+                pending.target_id,
+                pending.target_name,
+            )
+
+        except Exception as e:
+
+            return (
+                f"I couldn't delete "
+                f"'{pending.target_name}'.\n\n"
+                f"Reason: {e}"
+            )
+
+        result = ensure_result(
+            result,
+            "cloud_delete",
+        )
+
+        if is_successful_result(result):
+
+            message = result.get("message")
+
+            return str(message) or (
+                f"Deleted '{pending.target_name}' "
+                f"from Google Drive."
+            )
+
+        error = result.get(
+            "error",
+            "Unknown error.",
+        )
+
+        return (
+            f"I couldn't delete "
+            f"'{pending.target_name}'.\n\n"
+            f"Reason: {error}"
+        )
+
+    def _propose_cloud_delete(self, query):
+        """
+        Handle a natural-language delete request WITHOUT
+        deleting anything.
+
+        The request only produces a deterministic proposal;
+        deletion requires an explicit confirmation phrase in
+        a following message.
+        """
+
+        query = (
+            str(query).strip()
+            if query and str(query).strip()
+            else ""
+        )
+
+        if not query:
+
+            return (
+                "Please tell me the exact name of the "
+                "Google Drive file you want to delete.\n\n"
+                "Example: Delete notes.txt from Drive"
+            )
+
+        search_data = self.router.execute(
+            "cloud_search",
+            query,
+        )
+
+        search_data = ensure_result(
+            search_data,
+            "cloud_search",
+        )
+
+        if not is_successful_result(search_data):
+
+            return (
+                "I couldn't search Google Drive before "
+                "preparing that deletion.\n\n"
+                f"Reason: "
+                f"{search_data.get('error', 'Unknown error.')}"
+            )
+
+        matches = search_data.get(
+            "matches",
+            [],
+        )
+
+        # -----------------------------------------------------
+        # Zero matches stay safe
+        # -----------------------------------------------------
+
+        if not matches:
+
+            return (
+                f"I couldn't find any Google Drive file "
+                f"matching '{query}'.\n\n"
+                f"No files were changed."
+            )
+
+        # -----------------------------------------------------
+        # Multiple matches stay safe
+        # -----------------------------------------------------
+
+        if len(matches) > 1:
+
+            lines = [
+                "Multiple Google Drive files matched. "
+                "Please specify the exact file name:",
+                "",
+            ]
+
+            for match in matches[:10]:
+
+                lines.append(
+                    f"• {match.get('name', 'Unknown file')}"
+                )
+
+            lines.extend([
+                "",
+                "Nothing has been deleted.",
+            ])
+
+            return "\n".join(lines)
+
+        # -----------------------------------------------------
+        # Exactly one match -> proposal, NOT deletion
+        # -----------------------------------------------------
+
+        target = matches[0]
+
+        file_id = target.get("id")
+
+        name = target.get(
+            "name",
+            query,
+        )
+
+        if not file_id:
+
+            return (
+                f"I found '{name}' but it does not have a "
+                f"valid Google Drive ID, so I will not "
+                f"delete it."
+            )
+
+        self.safety.propose_delete(
+            file_id,
+            name,
+        )
+
+        return (
+            f"⚠️ Proposed destructive action:\n\n"
+            f"Delete '{name}' from Google Drive.\n\n"
+            f"This cannot be undone.\n\n"
+            f"Reply 'confirm delete' to permanently delete "
+            f"this exact file, or 'cancel' to stop."
+        )
+
+    # =========================================================
     # MAIN CHAT
     # =========================================================
 
@@ -1158,6 +1388,20 @@ Answer naturally as a laptop assistant.
             return self._download_selected_file(
                 user_message
             )
+
+        # =====================================================
+        # PENDING DESTRUCTIVE ACTION (CONFIRM / CANCEL)
+        # =====================================================
+
+        pending_response = (
+            self._handle_pending_action(
+                user_message
+            )
+        )
+
+        if pending_response is not None:
+
+            return pending_response
 
         # =====================================================
         # HEALTH FOLLOW-UP
@@ -1292,13 +1536,17 @@ Answer naturally as a laptop assistant.
 
             # -------------------------------------------------
             # Google Drive Delete
+            #
+            # Natural language NEVER deletes directly.
+            # This only proposes the deletion and waits for
+            # an explicit confirmation phrase handled by
+            # agent.action_safety.
             # -------------------------------------------------
 
             elif tool == "cloud_delete":
 
-                tool_data = self.router.execute(
-                    tool,
-                    decision.get("query"),
+                return self._propose_cloud_delete(
+                    decision.get("query")
                 )
 
             # -------------------------------------------------

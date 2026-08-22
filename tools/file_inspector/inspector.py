@@ -7,6 +7,10 @@ class FileInspector:
     Safely inspect files and return useful information.
 
     This tool NEVER modifies or deletes files.
+
+    Sensitive files (credentials, tokens, environment
+    secrets, private keys) are refused BEFORE any content
+    is read so they can never reach an AI prompt.
     """
 
     MAX_TEXT_SIZE_MB = 10
@@ -22,10 +26,108 @@ class FileInspector:
         ".exe", ".dll", ".sys", ".node", ".msi", ".bin",
     }
 
+    # =====================================================
+    # SENSITIVE PATH POLICY (DETERMINISTIC)
+    # =====================================================
+
+    # Name fragments that indicate secret material.
+    SENSITIVE_NAME_TOKENS = (
+        "credential",
+        "token",
+        "secret",
+        "password",
+    )
+
+    # Dot-environment files: .env, .env.local, ...
+    ENV_PREFIX = ".env"
+
+    # Private key / certificate store extensions.
+    SENSITIVE_SUFFIXES = (
+        ".pem", ".key", ".pfx", ".p12",
+        ".keystore", ".kdbx",
+    )
+
+    # Well-known private key filenames.
+    PRIVATE_KEY_NAMES = {
+        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+    }
+
+    # Directories that hold authentication material.
+    SENSITIVE_DIRECTORIES = {
+        ".ssh", ".aws", ".gnupg", ".kube",
+    }
+
+    BLOCKED_MESSAGE = (
+        "This file is protected and cannot be inspected."
+    )
+
+    def _is_sensitive_path(self, path):
+        """
+        Deterministically decide whether a path points at
+        sensitive material.
+
+        Only names and folder names are examined; the file is
+        never opened.
+        """
+
+        try:
+            parts = Path(path).parts
+        except (TypeError, ValueError):
+            return True
+
+        if not parts:
+            return False
+
+        name = parts[-1].lower()
+
+        if any(
+            token in name
+            for token in self.SENSITIVE_NAME_TOKENS
+        ):
+            return True
+
+        if name == self.ENV_PREFIX or name.startswith(
+            self.ENV_PREFIX + "."
+        ):
+            return True
+
+        if name.endswith(self.SENSITIVE_SUFFIXES):
+            return True
+
+        stem = name.rsplit(".", 1)[0]
+
+        if stem in self.PRIVATE_KEY_NAMES:
+            return True
+
+        directories = {
+            part.lower()
+            for part in parts[:-1]
+        }
+
+        if directories & self.SENSITIVE_DIRECTORIES:
+            return True
+
+        return False
+
+    def _blocked_result(self):
+        """
+        Normalized refusal result.
+
+        Deliberately does NOT echo the resolved path.
+        """
+
+        return {
+            "success": False,
+            "tool": "file_inspector",
+            "error": self.BLOCKED_MESSAGE,
+            "blocked_reason": "sensitive_path",
+        }
+
     def find_file(self, filename):
         """
         Safely locate a file by filename.
         This method NEVER modifies or deletes files.
+        Sensitive files are never returned as results.
         """
 
         filename = str(filename).strip()
@@ -38,6 +140,9 @@ class FileInspector:
             }
 
         direct_path = Path(filename)
+
+        if self._is_sensitive_path(direct_path):
+            return self._blocked_result()
 
         if direct_path.exists() and direct_path.is_file():
             return {
@@ -52,6 +157,10 @@ class FileInspector:
             try:
                 for path in temp_directory.rglob(filename):
                     if path.is_file():
+
+                        if self._is_sensitive_path(path):
+                            continue
+
                         return {
                             "success": True,
                             "tool": "file_inspector",
@@ -106,9 +215,13 @@ class FileInspector:
     def inspect(self, file_path):
         """
         Inspect a file without modifying it.
+        Sensitive files are refused before anything is read.
         """
 
         path = Path(file_path)
+
+        if self._is_sensitive_path(path):
+            return self._blocked_result()
 
         if not path.exists():
             return {

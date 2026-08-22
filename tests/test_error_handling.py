@@ -306,18 +306,23 @@ class TestAgentFailureHandling:
 
 class TestCloudDeleteUserFacingFormat:
 
-    def test_single_match_delete_shows_message_not_raw_dict(
+    def test_single_match_delete_proposes_never_executes(
         self,
         agent,
     ):
+        delete_calls = []
+
         provider = StaticProvider({"success": True})
         provider.search_files = lambda query: {
             "success": True,
             "matches": [{"id": "abc", "name": "notes.txt"}],
         }
-        provider.delete_file_by_id = (
-            lambda file_id: {"success": True}
-        )
+
+        def record_delete(file_id):
+            delete_calls.append(file_id)
+            return {"success": True}
+
+        provider.delete_file_by_id = record_delete
         agent.router.google_drive = provider
 
         response = agent.chat(
@@ -326,7 +331,10 @@ class TestCloudDeleteUserFacingFormat:
 
         assert isinstance(response, str)
         assert "notes.txt" in response
-        assert "Successfully deleted" in response
+        assert "confirm" in response.lower()
         # Raw internal result must not be dumped to the user.
         assert "'success': True" not in response
+        # Natural language alone must NEVER delete.
+        assert delete_calls == []
+        assert agent.safety.has_pending() is True
         assert agent.ai.prompts == []
