@@ -1,5 +1,5 @@
-import json
 from agent.prompts import SYSTEM_PROMPT
+from agent.prompt_safety import render_tool_data
 
 
 def build_storage_prompt(user_message, data):
@@ -14,7 +14,7 @@ Tool:
 Storage Analyzer
 
 Tool Output:
-{json.dumps(data, indent=2)}
+{render_tool_data(data)}
 
 Analyze the storage information.
 

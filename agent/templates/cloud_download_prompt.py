@@ -1,3 +1,6 @@
+from agent.prompt_safety import render_tool_data
+
+
 def build_cloud_download_prompt(user_message, tool_data):
     """
     Builds the AI prompt for Google Drive download results.
@@ -10,7 +13,7 @@ The user requested:
 {user_message}
 
 Google Drive download result:
-{tool_data}
+{render_tool_data(tool_data)}
 
 Respond clearly and concisely.
 

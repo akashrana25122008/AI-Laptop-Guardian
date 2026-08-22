@@ -1,3 +1,8 @@
+from agent.result_contract import (
+    ensure_result,
+    sanitize_error,
+)
+
 from cloud.google_drive import GoogleDriveProvider
 
 from tools.battery.battery import BatteryTool
@@ -27,6 +32,19 @@ class ToolRouter:
             - cloud_upload
             - cloud_download
             - cloud_delete
+
+    Every dispatched tool returns a normalized result:
+
+        {
+            "success": bool,
+            "tool": str,
+            "data": ...,
+            "error": str,
+        }
+
+    A failed tool call is never converted into a fake
+    success, and unexpected tool exceptions are caught here
+    instead of propagating to the caller.
     """
 
     def __init__(self):
@@ -46,6 +64,55 @@ class ToolRouter:
         # =====================================================
 
         self.google_drive = GoogleDriveProvider()
+
+    # =========================================================
+    # RESULT NORMALIZATION
+    # =========================================================
+
+    def _finalize(self, tool_name, raw_result):
+        """
+        Normalize any tool or provider return value into the
+        result contract.
+
+        Valid results pass through unchanged. Failures always
+        carry predictable error information.
+        """
+
+        result = ensure_result(raw_result, tool_name)
+
+        if not result.get("success") and not result.get("error"):
+
+            message = result.get("message")
+
+            result["error"] = (
+                sanitize_error(message)
+                if message
+                else "Tool reported failure without details."
+            )
+
+        return result
+
+    def _run_tool(self, tool_name, func, *args, **kwargs):
+        """
+        Execute one tool call and normalize its result.
+
+        Expected tool failures (returned as failure results)
+        and unexpected exceptions are both converted into the
+        normalized failure shape.
+        """
+
+        try:
+            return self._finalize(
+                tool_name,
+                func(*args, **kwargs),
+            )
+
+        except Exception as e:
+            return {
+                "success": False,
+                "tool": tool_name,
+                "error": sanitize_error(e),
+            }
 
     # =========================================================
     # MAIN ROUTER
@@ -78,28 +145,44 @@ class ToolRouter:
         # =====================================================
 
         if tool == "cloud_search":
-            return self.google_drive.search_files(argument)
+            return self._run_tool(
+                "cloud_search",
+                self.google_drive.search_files,
+                argument,
+            )
 
         # =====================================================
         # GOOGLE DRIVE - UPLOAD
         # =====================================================
 
         if tool == "cloud_upload":
-            return self.google_drive.upload_file(argument)
+            return self._run_tool(
+                "cloud_upload",
+                self.google_drive.upload_file,
+                argument,
+            )
 
         # =====================================================
         # GOOGLE DRIVE - DOWNLOAD
         # =====================================================
 
         if tool == "cloud_download":
-            return self.google_drive.download_file(argument)
+            return self._run_tool(
+                "cloud_download",
+                self.google_drive.download_file,
+                argument,
+            )
 
         # =====================================================
         # GOOGLE DRIVE - DELETE
         # =====================================================
 
         if tool == "cloud_delete":
-            return self._delete_google_drive_file(argument)
+            return self._run_tool(
+                "cloud_delete",
+                self._delete_google_drive_file,
+                argument,
+            )
 
         # =====================================================
         # BATTERY
@@ -160,17 +243,10 @@ class ToolRouter:
     def _execute_battery(self):
         """Execute BatteryTool."""
 
-        try:
-            result = self.battery_tool.execute()
-
-            return result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "tool": "battery",
-                "error": str(e),
-            }
+        return self._run_tool(
+            "battery",
+            self.battery_tool.execute,
+        )
 
     # =========================================================
     # CPU
@@ -179,17 +255,10 @@ class ToolRouter:
     def _execute_cpu(self):
         """Execute CPUTool."""
 
-        try:
-            result = self.cpu_tool.execute()
-
-            return result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "tool": "cpu",
-                "error": str(e),
-            }
+        return self._run_tool(
+            "cpu",
+            self.cpu_tool.execute,
+        )
 
     # =========================================================
     # RAM
@@ -198,17 +267,10 @@ class ToolRouter:
     def _execute_ram(self):
         """Execute RAMTool."""
 
-        try:
-            result = self.ram_tool.execute()
-
-            return result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "tool": "ram",
-                "error": str(e),
-            }
+        return self._run_tool(
+            "ram",
+            self.ram_tool.execute,
+        )
 
     # =========================================================
     # HEALTH
@@ -217,17 +279,10 @@ class ToolRouter:
     def _execute_health(self):
         """Execute HealthTool."""
 
-        try:
-            result = self.health_tool.execute()
-
-            return result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "tool": "health",
-                "error": str(e),
-            }
+        return self._run_tool(
+            "health",
+            self.health_tool.execute,
+        )
 
     # =========================================================
     # STORAGE
@@ -377,13 +432,16 @@ class ToolRouter:
             }
 
         try:
-            return self.file_inspector.inspect(path)
+            return self._finalize(
+                "file_inspector",
+                self.file_inspector.inspect(path),
+            )
 
         except Exception as e:
             return {
                 "success": False,
                 "tool": "file_inspector",
-                "error": str(e),
+                "error": sanitize_error(e),
                 "path": path,
             }
 

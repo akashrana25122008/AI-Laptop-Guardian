@@ -1,3 +1,6 @@
+from agent.prompt_safety import render_tool_data
+
+
 def build_cloud_search_prompt(user_message, tool_data):
     """
     Build a prompt for Google Drive search results.
@@ -12,7 +15,7 @@ The user asked:
 
 Google Drive search returned the following data:
 
-{tool_data}
+{render_tool_data(tool_data)}
 
 Analyze the search results and answer the user's request clearly.
 

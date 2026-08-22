@@ -1,3 +1,6 @@
+from agent.prompt_safety import render_tool_data
+
+
 def build_ram_prompt(user_message, data):
     """
     Build the AI prompt for RAM analysis.
@@ -10,7 +13,7 @@ The user asked:
 {user_message}
 
 The RAM monitoring tool returned this data:
-{data}
+{render_tool_data(data)}
 
 Your job is to answer the user's question using ONLY the RAM data provided.
 

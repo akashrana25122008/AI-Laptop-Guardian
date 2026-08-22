@@ -1,6 +1,11 @@
 from agent.ollama_client import OllamaClient
 from agent.planner import Planner
 from agent.tool_router import ToolRouter
+from agent.result_contract import (
+    ensure_result,
+    is_successful_result,
+)
+from agent.prompt_safety import render_tool_data
 
 from agent.templates import (
     build_storage_prompt,
@@ -200,7 +205,7 @@ The user previously asked for a laptop health check.
 
 Here is the latest HealthTool report:
 
-{self.last_health_report}
+{render_tool_data(self.last_health_report)}
 
 The user is now asking a follow-up question:
 
@@ -1087,6 +1092,34 @@ Answer naturally as a laptop assistant.
         )
 
     # =========================================================
+    # FORMAT SIMPLE TOOL RESULT (NO PROMPT BUILDER)
+    # =========================================================
+
+    def _format_simple_result(self, tool_data):
+        """
+        User-friendly output for successful tools that have
+        no prompt builder, such as cloud_delete.
+
+        Only the tool's own message and key fields are shown;
+        the raw internal result is never dumped.
+        """
+
+        message = tool_data.get("message")
+
+        if message:
+            return str(message)
+
+        tool_name = tool_data.get(
+            "tool",
+            "request",
+        )
+
+        return (
+            f"The {tool_name} operation completed "
+            f"successfully."
+        )
+
+    # =========================================================
     # MAIN CHAT
     # =========================================================
 
@@ -1307,28 +1340,30 @@ Answer naturally as a laptop assistant.
             )
 
         # =====================================================
+        # NORMALIZE TOOL RESULT
+        # =====================================================
+
+        # Malformed or non-dict tool output is wrapped as an
+        # explicit failure so it can never reach Ollama as if
+        # it were valid data.
+
+        tool_data = ensure_result(tool_data, tool)
+
+        # =====================================================
         # HANDLE TOOL FAILURE
         # =====================================================
 
-        if isinstance(
-            tool_data,
-            dict,
-        ):
+        if not is_successful_result(tool_data):
 
-            if not tool_data.get(
-                "success",
-                False,
-            ):
+            error = tool_data.get(
+                "error",
+                "Unknown tool error.",
+            )
 
-                error = tool_data.get(
-                    "error",
-                    "Unknown tool error.",
-                )
-
-                return (
-                    f"I couldn't complete that request.\n\n"
-                    f"Reason: {error}"
-                )
+            return (
+                f"I couldn't complete that request.\n\n"
+                f"Reason: {error}"
+            )
 
         # =====================================================
         # FIND PROMPT BUILDER
@@ -1340,7 +1375,13 @@ Answer naturally as a laptop assistant.
 
         if builder is None:
 
-            return tool_data
+            # Tools without a prompt builder (such as
+            # cloud_delete) report their own user-facing
+            # message instead of dumping raw internals.
+
+            return self._format_simple_result(
+                tool_data
+            )
 
         # =====================================================
         # BUILD AI PROMPT

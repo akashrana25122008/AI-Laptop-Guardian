@@ -1,4 +1,5 @@
 from agent.prompts import SYSTEM_PROMPT
+from agent.prompt_safety import render_tool_data
 
 
 def build_cpu_prompt(user_message, data):
@@ -10,7 +11,7 @@ User Request:
 {user_message}
 
 Tool Output:
-{data}
+{render_tool_data(data)}
 
 Analyze CPU information.
 Only use the provided data.

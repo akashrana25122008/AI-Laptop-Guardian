@@ -1,4 +1,7 @@
 
+from agent.prompt_safety import render_tool_data
+
+
 def build_health_prompt(user_message, tool_data):
     """
     Build a strict AI prompt for laptop health analysis.
@@ -224,7 +227,7 @@ Say:
 LATEST LAPTOP HEALTH DATA
 =========================================================
 
-{tool_data}
+{render_tool_data(tool_data)}
 
 =========================================================
 RESPONSE FORMAT

@@ -53,6 +53,7 @@ class CleanupTool:
             return {
                 "success": False,
                 "tool": "cleanup",
+                "error": "TEMP environment variable not found.",
                 "message": "TEMP environment variable not found.",
             }
 
@@ -60,6 +61,7 @@ class CleanupTool:
             return {
                 "success": False,
                 "tool": "cleanup",
+                "error": "TEMP directory does not exist.",
                 "message": "TEMP directory does not exist.",
             }
 
