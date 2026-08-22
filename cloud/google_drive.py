@@ -1031,6 +1031,58 @@ class GoogleDriveProvider:
     # STORAGE QUOTA (READ-ONLY)
     # =========================================================
 
+    def get_account_identity(self):
+        """
+        Read-only safe identity for the authorized
+        account.
+
+        Used by the account-connection flow AFTER the
+        user explicitly completes Google's OAuth consent,
+        so the account can be registered under its real
+        Google identity.
+
+        Returns ONLY an email address and a display name.
+        It never returns or exposes tokens, secrets, or
+        any other credential material.
+        """
+
+        if self.service is None:
+            self.authenticate()
+
+        try:
+            about = (
+                self.service.about()
+                .get(
+                    fields=(
+                        "user(displayName,emailAddress)"
+                    )
+                )
+                .execute()
+            )
+
+            user = about.get(
+                "user",
+                {},
+            ) or {}
+
+            return {
+                "success": True,
+                "tool": "cloud_auth",
+                "email": user.get(
+                    "emailAddress"
+                ),
+                "display_name": user.get(
+                    "displayName"
+                ),
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "tool": "cloud_auth",
+                "error": str(e),
+            }
+
     def get_storage_info(self):
         """
         Read-only Google Drive storage quota information.

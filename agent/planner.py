@@ -43,6 +43,70 @@ class Planner:
         r"(?:google\s+)?drives?\b"
     )
 
+    # =====================================================
+    # GOOGLE ACCOUNT MANAGEMENT VOCABULARY
+    #
+    # Examples:
+    #     Connect my Google Drive
+    #     Add another Google account
+    #     Show my connected accounts
+    #     Which accounts are connected?
+    #     Disconnect account 2
+    #     Sign out of Google
+    #
+    # These intents stay narrow so ordinary file requests
+    # mentioning an account number keep their existing
+    # routing (search, download, upload, delete).
+    # =====================================================
+
+    CONNECT_ACCOUNT_PATTERN = re.compile(
+        r"\b(?:connect|add|link)\b"
+    )
+
+    LIST_ACCOUNTS_PATTERN = re.compile(
+        r"\b(?:show|list|which|what|see|view|display)\b"
+    )
+
+    DISCONNECT_ACCOUNT_PATTERN = re.compile(
+        r"\b(?:disconnect|unlink|sign\s+out|log\s+out)\b"
+    )
+
+    # A request counts as ACCOUNT MANAGEMENT only when an
+    # account-management noun is present.
+
+    ACCOUNT_NOUN_PATTERN = re.compile(
+        r"\baccounts?\b"
+    )
+
+    # Google naming used by connect/disconnect phrasing
+    # that may not contain the word "account".
+
+    GOOGLE_NAME_PATTERN = re.compile(
+        r"\bgoogle\b|\bgdrive\b"
+    )
+
+    # Listing needs STRONGER context than just "account",
+    # otherwise "List files in account 2" would be
+    # misrouted away from search.
+
+    ACCOUNT_LIST_CONTEXT_PATTERN = re.compile(
+        r"\b(?:"
+        r"google\s+accounts?"
+        r"|gdrive\s+accounts?"
+        r"|connected\s+accounts?"
+        r"|my\s+accounts?"
+        r"|accounts\s+(?:are|do|i\s+have)"
+        r"|signed\s*[- ]?in"
+        r")"
+    )
+
+    # Email addresses can identify an account directly.
+
+    EMAIL_PATTERN = re.compile(
+        r"[A-Za-z0-9._%+-]+@"
+        r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    )
+
     # Cloud context words for storage-intelligence
     # requests. A question about "storage" or "space"
     # only becomes a CLOUD question when one of these
@@ -591,6 +655,75 @@ class Planner:
                     else None
                 ),
             }
+
+        # =====================================================
+        # GOOGLE ACCOUNT MANAGEMENT (EXPLICIT ONLY)
+        #
+        # Listing is offline. Connecting and disconnecting
+        # are separate explicit user actions; neither is
+        # ever triggered by ordinary file requests.
+        # =====================================================
+
+        if not cleanup_intent:
+
+            if (
+                self.DISCONNECT_ACCOUNT_PATTERN.search(
+                    text
+                )
+                and (
+                    self.ACCOUNT_NOUN_PATTERN.search(
+                        text
+                    )
+                    or self.GOOGLE_NAME_PATTERN.search(
+                        text
+                    )
+                    or self.EMAIL_PATTERN.search(text)
+                )
+            ):
+
+                refs = (
+                    self.ACCOUNT_REF_PATTERN.findall(
+                        text
+                    )
+                )
+
+                email_match = (
+                    self.EMAIL_PATTERN.search(text)
+                )
+
+                selector = None
+
+                if refs:
+                    selector = refs[0]
+                elif email_match:
+                    selector = email_match.group(0)
+
+                return {
+                    "tool": "cloud_disconnect",
+                    "selector": selector,
+                }
+
+            if (
+                self.CONNECT_ACCOUNT_PATTERN.search(
+                    text
+                )
+                and self.GOOGLE_NAME_PATTERN.search(
+                    text
+                )
+            ):
+
+                return {"tool": "cloud_connect"}
+
+            if (
+                self.LIST_ACCOUNTS_PATTERN.search(
+                    text
+                )
+                and self.ACCOUNT_LIST_CONTEXT_PATTERN.search(
+                    text
+                )
+            ):
+
+                return {"tool": "cloud_accounts"}
 
         # =====================================================
         # GOOGLE DRIVE - SEARCH

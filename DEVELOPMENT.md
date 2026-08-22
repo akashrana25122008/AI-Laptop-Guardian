@@ -207,3 +207,141 @@ All tests use injected fakes or stubs; they assert that no
 download, upload, delete, or AI call ever happens during
 analytics, and that partial failures remain explicit in
 user-facing output.
+
+---
+
+## Milestone 9: Google Account Connection & Account Management
+
+Milestone 9 adds the explicit, user-driven account lifecycle on
+top of the multi-account architecture from Milestone 7:
+
+- Connect a new Google account through Google's official
+  OAuth installed-app consent flow.
+- List connected accounts offline, including honest
+  reporting when an account's stored authorization is
+  missing.
+- Disconnect exactly one account after an explicit
+  confirmation, removing ONLY this application's stored
+  authorization state for that account.
+
+### One-time OAuth setup (Phase 17)
+
+Connecting a Google account requires a Google OAuth client
+configuration file named `credentials.json` in the project
+root:
+
+1. Open Google Cloud Console and create (or select) a
+   project.
+2. Enable the Google Drive API for that project.
+3. Configure the OAuth consent screen (External or Internal,
+   per your needs). No sensitive scopes are requested beyond
+   Drive file access used by earlier milestones.
+4. Create OAuth client credentials of type "Desktop app".
+5. Download the client configuration and save it as
+   `credentials.json` in the project root.
+
+The downloaded file contains placeholders specific to your
+project (for example `YOUR_GOOGLE_CLIENT_ID` and
+`YOUR_GOOGLE_CLIENT_SECRET` values are filled in by Google).
+This application never prints those values and never sends
+them to the local AI model. `credentials.json` and all token
+files stay untracked in `.gitignore`.
+
+Without this file, connecting fails safely with setup
+guidance; nothing else in the assistant is affected.
+
+### Explicit authentication only
+
+Authentication can NEVER start implicitly. Importing modules,
+starting the agent, asking about CPU/RAM/storage/battery, or
+listing accounts never triggers OAuth. The flow runs only
+when the user explicitly asks to connect a Google account,
+and the user always chooses their Google identity on
+Google's own consent screen. The application never asks for,
+accepts, or stores a password.
+
+### New module: cloud/auth_manager.py
+
+`GoogleAuthManager` coordinates the full lifecycle:
+
+- Pending connections use a hidden temporary token file
+  (`.pending-<random>.json`) inside the existing token
+  directory until completion; failures and cancellations
+  always clean it up.
+- On success, the SAFE identity reported by Google is read
+  via `get_account_identity()` (email + display name only),
+  the account is registered/updated idempotently through the
+  existing registry (same email reconnects instead of
+  duplicating), and the token is relocated to that account's
+  OWN isolated file `<token_dir>/<account_id>.json`.
+- Completing a connection never materializes a provider
+  session; lazy session construction from Milestone 7 is
+  preserved.
+- If the isolated token cannot be stored, a NEW registration
+  is rolled back so no account ever exists without its
+  authorization state.
+- Disconnect marks the registration disconnected (ids are
+  never silently reassigned), drops any cached session, and
+  deletes only that account's token file. Other accounts are
+  untouched, cloud data is never touched, and no token file
+  content is ever read.
+- Status listing is fully offline and reports accounts whose
+  token file is missing as "authentication unavailable"
+  instead of silently re-authenticating.
+
+### Router and planner integration
+
+`ToolRouter` gained `execute_accounts_status()`,
+`execute_google_connect()`, and
+`execute_google_disconnect(selector)` wired to tools
+`cloud_accounts`, `cloud_connect`, and `cloud_disconnect`.
+The auth manager binding follows the live drive manager like
+the analytics layer does.
+
+The Planner recognizes connect/list/disconnect phrasing with
+narrow context rules, so ordinary file requests mentioning
+accounts keep their Milestone 5-8 routing. Disconnect
+selectors accept account numbers or email addresses; without
+a selector the agent asks which account instead of guessing.
+
+### Confirmation-gated disconnect
+
+Disconnect requests never execute immediately. The agent
+remembers the exact proposed account in single-use pending
+state and requires a separate explicit confirmation message
+("confirm disconnect"). Any other reply cancels; cancelled
+requests can never execute later, and wrong-account input is
+impossible because confirmation carries no selector.
+
+### Security posture
+
+- Tokens, authorization codes, client secrets, and
+  credentials-file contents are never printed, logged, sent
+  to the AI model, or included in any result payload.
+- Identity-failure messages are fully generic so raw
+  exception text from the OAuth layer can never leak.
+- Listing accounts builds no sessions and performs no
+  network access; a dedicated test explodes if any factory
+  call happens during offline flows.
+- All tests use fake handshakes only: no real OAuth, no
+  browser, no network, no Google API calls.
+
+### Dependencies
+
+requirements.txt now lists the implementation-required
+Google client libraries (unpinned, matching the project's
+runtime-dependency convention): `requests`, `google-auth`,
+`google-auth-oauthlib`, `google-auth-httplib2`,
+`google-api-python-client`. The development venv intentionally
+does not install them; cloud imports remain lazy and all
+tests run against stubs.
+
+### Tests
+
+Milestone 9 test coverage lives in:
+
+- `tests/test_auth_manager_connect.py`
+- `tests/test_auth_token_isolation_m9.py`
+- `tests/test_auth_status_security.py`
+- `tests/test_planner_milestone9.py`
+- `tests/test_agent_account_management.py`

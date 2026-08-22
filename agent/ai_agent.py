@@ -105,6 +105,17 @@ class AIAgent:
 
         self.last_health_report = None
 
+        # =====================================================
+        # PENDING DISCONNECT (EXPLICIT CONFIRMATION)
+        #
+        # A disconnect request never executes immediately.
+        # The exact target is remembered here and the user
+        # must confirm in a separate message. This state is
+        # single-use and holds no secrets.
+        # =====================================================
+
+        self.pending_disconnect = None
+
     # =========================================================
     # HEALTH MEMORY
     # =========================================================
@@ -2326,6 +2337,311 @@ Answer naturally as a laptop assistant.
 
         return "\n".join(lines)
 
+    # =========================================================
+    # GOOGLE ACCOUNT MANAGEMENT
+    #
+    # Listing is offline. Connecting opens Google's official
+    # OAuth consent flow ONLY on an explicit user request.
+    # Disconnecting always requires a separate explicit
+    # confirmation message before anything is removed.
+    # =========================================================
+
+    def _handle_cloud_accounts(self):
+        """
+        Offline listing of connected Google accounts.
+
+        No authentication is triggered here, ever: accounts
+        whose stored authorization is missing are reported
+        honestly instead of silently re-authenticating.
+        """
+
+        status = ensure_result(
+            self.router.execute("cloud_accounts"),
+            "cloud_accounts",
+        )
+
+        if not is_successful_result(status):
+
+            return (
+                "I couldn't read the account list.\n\n"
+                f"Reason: "
+                f"{status.get('error', 'unknown error')}"
+            )
+
+        accounts = status.get("accounts") or []
+
+        if not accounts:
+
+            return (
+                "No Google accounts are connected yet.\n\n"
+                "Say 'Connect my Google account' and I will "
+                "open Google's official sign-in flow."
+            )
+
+        lines = [
+            f"You have {len(accounts)} connected Google "
+            f"account{'s' if len(accounts) != 1 else ''}:",
+            "",
+        ]
+
+        for index, account in enumerate(accounts, 1):
+
+            if not isinstance(account, dict):
+                continue
+
+            label = (
+                account.get("label")
+                or f"account {index}"
+            )
+
+            email = account.get("email", "")
+
+            provider = account.get(
+                "provider",
+                "google_drive",
+            )
+
+            state = account.get(
+                "status",
+                "connected",
+            )
+
+            lines.append(
+                f"{index}. {label} - {email} "
+                f"({provider}, {state})"
+            )
+
+        return "\n".join(lines)
+
+    def _handle_cloud_connect(self):
+        """
+        Connect ONE new Google account through Google's
+        official OAuth consent flow.
+
+        Reached ONLY through an explicit user request. The
+        user picks their Google identity on Google's own
+        screen; this application never sees a password.
+        """
+
+        result = ensure_result(
+            self.router.execute("cloud_connect"),
+            "cloud_connect",
+        )
+
+        if not is_successful_result(result):
+
+            if (
+                result.get("error_code")
+                == "missing_credentials"
+            ):
+
+                return (
+                    "Google OAuth is not set up yet.\n\n"
+                    "This app needs a Google OAuth client "
+                    "file named 'credentials.json'. See "
+                    "DEVELOPMENT.md, Phase 17 for one-time "
+                    "setup instructions."
+                )
+
+            return (
+                "I couldn't connect a new Google "
+                "account.\n\n"
+                f"Reason: "
+                f"{result.get('error', 'unknown error')}"
+            )
+
+        account = result.get("account") or {}
+
+        label = account.get("label", "Google account")
+
+        email = account.get("email", "")
+
+        created_new = result.get("created_new")
+
+        if created_new:
+
+            intro = "Connected a new Google account"
+
+        else:
+
+            intro = (
+                "Re-connected an existing Google "
+                "account"
+            )
+
+        total = result.get("total_accounts")
+
+        lines = [
+            f"{intro}: {label} ({email}).",
+        ]
+
+        if total is not None:
+
+            lines.extend([
+                "",
+                f"Connected accounts: {total}",
+            ])
+
+        return "\n".join(lines)
+
+    def _handle_cloud_disconnect(self, decision):
+        """
+        Propose disconnecting exactly ONE named account.
+
+        Nothing is disconnected here. The exact account is
+        remembered and executed only after a separate
+        explicit confirmation message.
+        """
+
+        selector = decision.get("selector")
+
+        if (
+            not selector
+            or not str(selector).strip()
+        ):
+
+            listing = self._list_accounts_message(
+                "Which account should be "
+                "disconnected?"
+            )
+
+            return (
+                f"{listing}\n\n"
+                "Example: Disconnect account 2"
+            )
+
+        resolved = (
+            self.router.drive_manager.registry
+            .resolve_selector(str(selector).strip())
+        )
+
+        if (
+            resolved is None
+            or not resolved.is_connected()
+        ):
+
+            listing = self._list_accounts_message(
+                f"I couldn't find a connected account "
+                f"for '{selector}'."
+            )
+
+            return (
+                f"{listing}\n\n"
+                "Nothing was disconnected."
+            )
+
+        self.pending_disconnect = {
+            "account_id": resolved.id,
+            "label": resolved.safe_label(),
+            "email": resolved.email,
+        }
+
+        label = resolved.safe_label()
+
+        email = resolved.email
+
+        return (
+            f"Disconnect {label} ({email})?\n\n"
+            "This removes THIS application's stored "
+            "authorization for that account only. It never "
+            "deletes files from Google Drive or from this "
+            "computer, and it never touches your other "
+            "accounts.\n\n"
+            "Reply 'confirm disconnect' to proceed or "
+            "'cancel' to keep it connected."
+        )
+
+    def _handle_pending_disconnect_response(
+        self,
+        user_message,
+    ):
+        """
+        Resolve a pending disconnect request.
+
+        Only an explicit confirmation phrase executes the
+        disconnect of the EXACT remembered account. Any
+        other reply cancels; nothing ambiguous ever runs.
+
+        Returns None when no disconnect is pending.
+        """
+
+        if self.pending_disconnect is None:
+
+            return None
+
+        target = self.pending_disconnect
+
+        # Single-use: consumed whether confirmed or not.
+
+        self.pending_disconnect = None
+
+        text = user_message.strip().lower()
+
+        confirmed = text in {
+            "confirm disconnect",
+            "yes disconnect",
+            "yes",
+            "confirm",
+            "proceed",
+            "disconnect",
+        }
+
+        if not confirmed:
+
+            return (
+                "Cancelled. Nothing was disconnected; "
+                f"{target['label']} stays connected."
+            )
+
+        result = ensure_result(
+            self.router.execute(
+                "cloud_disconnect",
+                target["account_id"],
+            ),
+            "cloud_disconnect",
+        )
+
+        if not is_successful_result(result):
+
+            return (
+                "I couldn't complete the disconnect.\n\n"
+                f"Reason: "
+                f"{result.get('error', 'unknown error')}"
+            )
+
+        local_removed = result.get(
+            "local_authorization_removed"
+        )
+
+        lines = [
+            f"Disconnected {target['label']} "
+            f"({target['email']}).",
+        ]
+
+        if local_removed:
+
+            lines.extend([
+                "",
+                "Its stored authorization was removed "
+                "from this computer.",
+            ])
+
+        else:
+
+            lines.extend([
+                "",
+                "Note: a leftover authorization file could "
+                "not be removed automatically.",
+            ])
+
+        lines.extend([
+            "",
+            "Your other accounts were not affected, and no "
+            "files were deleted.",
+        ])
+
+        return "\n".join(lines)
+
     def _propose_cloud_delete(
         self,
         query,
@@ -2593,6 +2909,24 @@ Answer naturally as a laptop assistant.
             return pending_response
 
         # =====================================================
+        # PENDING DISCONNECT (CONFIRM / CANCEL)
+        #
+        # A proposed disconnect is executed only by an
+        # explicit confirmation phrase in a separate
+        # message. Any other reply cancels it.
+        # =====================================================
+
+        disconnect_response = (
+            self._handle_pending_disconnect_response(
+                user_message
+            )
+        )
+
+        if disconnect_response is not None:
+
+            return disconnect_response
+
+        # =====================================================
         # HEALTH FOLLOW-UP
         # =====================================================
 
@@ -2838,6 +3172,29 @@ Answer naturally as a laptop assistant.
             elif tool == "storage_overview":
 
                 return self._handle_storage_overview()
+
+            # -------------------------------------------------
+            # Google Account Management (EXPLICIT ONLY)
+            #
+            # Listing is offline. Connecting runs Google's
+            # official OAuth flow only because the user
+            # explicitly asked. Disconnecting only proposes;
+            # it executes after a separate confirmation.
+            # -------------------------------------------------
+
+            elif tool == "cloud_accounts":
+
+                return self._handle_cloud_accounts()
+
+            elif tool == "cloud_connect":
+
+                return self._handle_cloud_connect()
+
+            elif tool == "cloud_disconnect":
+
+                return self._handle_cloud_disconnect(
+                    decision
+                )
 
             # -------------------------------------------------
             # All local tools

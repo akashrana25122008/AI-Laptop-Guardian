@@ -8,6 +8,7 @@ from cloud.multi_drive import MultiAccountDriveManager
 from cloud.cloud_intelligence import (
     CloudStorageIntelligence,
 )
+from cloud.auth_manager import GoogleAuthManager
 
 from tools.battery.battery import BatteryTool
 from tools.cpu.cpu import CPUTool
@@ -120,6 +121,40 @@ class ToolRouter:
             )
         )
 
+        # =====================================================
+        # GOOGLE ACCOUNT CONNECTION (EXPLICIT ONLY)
+        #
+        # OAuth starts ONLY when the user explicitly asks
+        # to connect a Google account. Constructing the
+        # router, listing accounts, or running local tools
+        # never authenticates anything. Like the layers
+        # above, this binding follows the live drive
+        # manager.
+        # =====================================================
+
+        self._auth_manager = GoogleAuthManager(
+            drive_manager=self.drive_manager
+        )
+
+    @property
+    def auth_manager(self):
+        """
+        Return the auth manager bound to the CURRENT
+        drive manager, rebuilding if it was replaced.
+        """
+
+        if (
+            self._auth_manager is None
+            or self._auth_manager.drive_manager
+            is not self.drive_manager
+        ):
+
+            self._auth_manager = GoogleAuthManager(
+                drive_manager=self.drive_manager
+            )
+
+        return self._auth_manager
+
     @property
     def cloud_intelligence(self):
         """
@@ -229,6 +264,34 @@ class ToolRouter:
             return self._run_tool(
                 "cloud_search",
                 self.google_drive.search_files,
+                argument,
+            )
+
+        # =====================================================
+        # GOOGLE ACCOUNT MANAGEMENT (EXPLICIT ONLY)
+        #
+        # Listing is offline. Connecting runs Google's
+        # official OAuth consent flow ONLY because the
+        # user explicitly asked for it. Disconnect removes
+        # exactly one account's LOCAL authorization state.
+        # =====================================================
+
+        if tool == "cloud_accounts":
+            return self._run_tool(
+                "cloud_accounts",
+                self.execute_accounts_status,
+            )
+
+        if tool == "cloud_connect":
+            return self._run_tool(
+                "cloud_connect",
+                self.execute_google_connect,
+            )
+
+        if tool == "cloud_disconnect":
+            return self._run_tool(
+                "cloud_disconnect",
+                self.execute_google_disconnect,
                 argument,
             )
 
@@ -723,6 +786,117 @@ class ToolRouter:
     # =========================================================
     # LARGE FILES (READ-ONLY)
     # =========================================================
+
+    # =========================================================
+    # GOOGLE ACCOUNT MANAGEMENT (EXPLICIT USER ACTIONS)
+    # =========================================================
+
+    def execute_accounts_status(self):
+        """
+        Offline listing of connected Google accounts.
+
+        Never authenticates, never touches the network,
+        and never exposes tokens or credential files.
+        """
+
+        return self.auth_manager.get_auth_status()
+
+    def execute_google_connect(self):
+        """
+        Connect ONE new Google account through Google's
+        official OAuth consent flow.
+
+        Reached ONLY through an explicit user request.
+        Returns safe account metadata on success; on
+        missing OAuth client configuration it returns a
+        setup hint without ever reading or exposing the
+        file contents.
+        """
+
+        result = self.auth_manager.connect_account()
+
+        if not isinstance(result, dict):
+
+            return {
+                "success": False,
+                "tool": "cloud_connect",
+                "error": (
+                    "Google sign-in returned an "
+                    "unexpected result."
+                ),
+            }
+
+        result.setdefault("tool", "cloud_connect")
+
+        return self._finalize(
+            "cloud_connect",
+            result,
+        )
+
+    def execute_google_disconnect(self, selector):
+        """
+        Disconnect exactly ONE explicitly selected
+        account's LOCAL authorization state.
+
+        Unknown or ambiguous selectors fail safely with
+        the account list instead of guessing. This never
+        deletes cloud files and never touches other
+        accounts.
+        """
+
+        if selector is None or not str(selector).strip():
+
+            return {
+                "success": False,
+                "tool": "cloud_disconnect",
+                "error": (
+                    "Name the account to disconnect, "
+                    "for example: Disconnect account 2"
+                ),
+                "accounts": (
+                    self.execute_accounts_status().get(
+                        "accounts",
+                        [],
+                    )
+                ),
+            }
+
+        account = (
+            self.drive_manager.registry.resolve_selector(
+                str(selector).strip()
+            )
+        )
+
+        if (
+            account is None
+            or not account.is_connected()
+        ):
+
+            return {
+                "success": False,
+                "tool": "cloud_disconnect",
+                "error": (
+                    f"Account '{selector}' is not "
+                    f"connected."
+                ),
+                "accounts": (
+                    self.execute_accounts_status().get(
+                        "accounts",
+                        [],
+                    )
+                ),
+            }
+
+        result = self.auth_manager.disconnect_account(
+            account.id
+        )
+
+        result.setdefault("tool", "cloud_disconnect")
+
+        return self._finalize(
+            "cloud_disconnect",
+            result,
+        )
 
     def _scan_large_files(self):
         """
