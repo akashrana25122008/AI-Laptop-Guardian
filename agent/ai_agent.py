@@ -874,12 +874,31 @@ Answer naturally as a laptop assistant.
 
         try:
 
-            tool_data = (
-                self.router.google_drive
-                .download_file_by_id(
-                    file_id
-                )
+            account_id = selected_file.get(
+                "account_id"
             )
+
+            if account_id:
+
+                # The numbered pick carries its exact
+                # account: the download can only hit
+                # that account's isolated session.
+
+                tool_data = (
+                    self.router.execute_download_bound(
+                        account_id,
+                        file_id,
+                    )
+                )
+
+            else:
+
+                tool_data = (
+                    self.router.google_drive
+                    .download_file_by_id(
+                        file_id
+                    )
+                )
 
         except Exception as e:
 
@@ -1209,6 +1228,7 @@ Answer naturally as a laptop assistant.
             result = self.router.execute_delete_by_id(
                 pending.target_id,
                 pending.target_name,
+                account_id=pending.account_id,
             )
 
         except Exception as e:
@@ -1427,7 +1447,215 @@ Answer naturally as a laptop assistant.
 
         return "\n".join(lines)
 
-    def _propose_cloud_delete(self, query):
+    # =========================================================
+    # MULTI-ACCOUNT CLOUD HELPERS
+    # =========================================================
+
+    def _list_accounts_message(self, intro):
+        """
+        Deterministic listing of connected accounts for
+        disambiguation. Never selects an account.
+        """
+
+        lines = [intro, "", "Connected accounts:", ""]
+
+        accounts = (
+            self.router.describe_connected_accounts()
+        )
+
+        if not accounts:
+
+            lines.append(
+                "(No connected Google Drive accounts "
+                "are registered.)"
+            )
+
+        else:
+
+            for index, account in enumerate(
+                accounts,
+                start=1,
+            ):
+
+                lines.append(
+                    f"{index}. "
+                    f"{account.get('label', account.get('id'))}"
+                )
+
+        lines.extend([
+            "",
+            "Example: Search account 1",
+        ])
+
+        return "\n".join(lines)
+
+    def _explain_account_download(self, selector):
+        """
+        An account-referenced download without a previous
+        exact search result never guesses; it explains the
+        safe path instead.
+        """
+
+        return (
+            "To download from that account, first search "
+            "so the file is exact, then pick it by "
+            "number.\n\n"
+            "Example:\n"
+            f"  Search {selector} for report.pdf\n"
+            "  Download number 1"
+        )
+
+    def _handle_cloud_search(self, decision):
+        """
+        Execute a cloud search with deterministic account
+        scoping and format the result.
+
+            - explicit account reference -> only that
+              account,
+            - 'all ... drives' wording -> every connected
+              account,
+            - exactly one connected account -> that one,
+            - multiple connected accounts, none named ->
+              needs_selection prompt,
+            - no registered accounts -> legacy
+              single-provider behavior.
+        """
+
+        refs = decision.get("account_refs") or []
+
+        selector = refs[0] if refs else None
+
+        scope_all = (
+            decision.get("scope") == "all"
+        )
+
+        tool_data = (
+            self.router.execute_cloud_search_scoped(
+                decision.get("query"),
+                selector=selector,
+                scope_all=scope_all,
+            )
+        )
+
+        tool_data = ensure_result(
+            tool_data,
+            "cloud_search",
+        )
+
+        self._remember_cloud_matches(tool_data)
+
+        # -----------------------------------------------------
+        # Multiple connected accounts, none named:
+        # ask which one instead of guessing.
+        # -----------------------------------------------------
+
+        if tool_data.get("needs_selection"):
+
+            lines = [
+                "I found multiple connected Google Drive "
+                "accounts.",
+                "",
+                "Which account should I use?",
+                "",
+            ]
+
+            for index, account in enumerate(
+                tool_data.get("accounts", []),
+                start=1,
+            ):
+
+                lines.append(
+                    f"{index}. "
+                    f"{account.get('label', account.get('id'))}"
+                )
+
+            lines.extend([
+                "",
+                "You can also say: Search all my drives",
+            ])
+
+            return "\n".join(lines)
+
+        if not is_successful_result(tool_data):
+
+            reason = tool_data.get(
+                "error",
+                "Unknown error.",
+            )
+
+            return (
+                "I couldn't search Google Drive.\n\n"
+                f"Reason: {reason}"
+            )
+
+        matches = tool_data.get("matches", [])
+
+        if not matches:
+
+            data = tool_data.get("data")
+
+            if isinstance(data, dict):
+
+                matches = data.get("matches", [])
+
+        if not matches:
+
+            return (
+                "I couldn't find any matching files in "
+                "your Google Drive."
+            )
+
+        lines = [
+            f"I found {len(matches)} matching file(s):",
+            "",
+        ]
+
+        for index, match in enumerate(
+            matches,
+            start=1,
+        ):
+
+            name = match.get("name", "Unknown file")
+
+            mime = match.get(
+                "mime_type",
+                "Unknown type",
+            )
+
+            line = f"{index}. {name} ({mime}"
+
+            size_bytes = match.get("size_bytes")
+
+            if size_bytes is not None:
+
+                line += f", {size_bytes} bytes"
+
+            line += ")"
+
+            label = (
+                match.get("account_email")
+                or match.get("account_id")
+            )
+
+            if label:
+
+                line += f" - {label}"
+
+            lines.append(line)
+
+        lines.extend([
+            "",
+            "You can say:",
+            "- Download number 1",
+        ])
+
+        return "\n".join(lines)
+
+    def _propose_cloud_delete(
+        self,
+        query,
+        selector=None,
+    ):
         """
         Handle a natural-language delete request WITHOUT
         deleting anything.
@@ -1451,13 +1679,82 @@ Answer naturally as a laptop assistant.
                 "Example: Delete notes.txt from Drive"
             )
 
-        search_data = self.router.execute(
-            "cloud_search",
-            query,
-        )
+        # -----------------------------------------------------
+        # Deterministic account scoping
+        # -----------------------------------------------------
+        # When an account is named, the search (and later
+        # the confirmed deletion) is bound to exactly that
+        # account. An unknown account never falls back to
+        # a different one.
+        #
+        # With no accounts registered at all, this keeps
+        # the legacy single-provider behavior.
+        # -----------------------------------------------------
+
+        account = None
+
+        if selector is not None:
+
+            account = self.router.resolve_account(
+                selector
+            )
+
+            if account is None:
+
+                return (
+                    self._list_accounts_message(
+                        "I couldn't find that "
+                        "Google Drive account."
+                    )
+                )
+
+            scoped = (
+                self.router.execute_cloud_search_scoped(
+                    query,
+                    selector=selector,
+                )
+            )
+
+        elif (
+            self.router.drive_manager.registry.count()
+            == 1
+        ):
+
+            # Exactly one connected managed account:
+            # deterministic, no ambiguity possible.
+
+            scoped = (
+                self.router.execute_cloud_search_scoped(
+                    query,
+                )
+            )
+
+        elif (
+            self.router.drive_manager.registry.count()
+            > 1
+        ):
+
+            # Multiple connected accounts and none was
+            # named: refuse to guess which drive to
+            # delete from.
+
+            return (
+                self._list_accounts_message(
+                    "Several Google Drive accounts are "
+                    "connected. Please name one before "
+                    "deleting anything."
+                )
+            )
+
+        else:
+
+            scoped = self.router.execute(
+                "cloud_search",
+                query,
+            )
 
         search_data = ensure_result(
-            search_data,
+            scoped,
             "cloud_search",
         )
 
@@ -1536,7 +1833,27 @@ Answer naturally as a laptop assistant.
         self.safety.propose_delete(
             file_id,
             name,
+            account_id=(
+                target.get("account_id")
+                or (account["id"] if account else None)
+            ),
         )
+
+        if account:
+
+            label = (
+                account.get("email")
+                or account.get("id")
+            )
+
+            return (
+                f"⚠️ Proposed destructive action:\n\n"
+                f"Delete '{name}' from Google Drive "
+                f"account {label}.\n\n"
+                f"This cannot be undone.\n\n"
+                f"Reply 'confirm delete' to permanently delete "
+                f"this exact file, or 'cancel' to stop."
+            )
 
         return (
             f"⚠️ Proposed destructive action:\n\n"
@@ -1692,24 +2009,40 @@ Answer naturally as a laptop assistant.
 
             # -------------------------------------------------
             # Google Drive Search
+            #
+            # Account-scoped when the request names an
+            # account or asks for ALL connected accounts;
+            # otherwise unchanged single-provider behavior
+            # (or a needs_selection prompt when multiple
+            # accounts are connected and none is named).
             # -------------------------------------------------
 
             elif tool == "cloud_search":
 
-                tool_data = self.router.execute(
-                    tool,
-                    decision.get("query"),
-                )
-
-                return self._format_cloud_search_results(
-                    tool_data
+                return self._handle_cloud_search(
+                    decision
                 )
 
             # -------------------------------------------------
             # Google Drive Download
+            #
+            # An account-referenced download never guesses
+            # which file is meant; it asks for an exact
+            # numbered pick instead. Numbered picks carry
+            # their account identity end to end.
             # -------------------------------------------------
 
             elif tool == "cloud_download":
+
+                refs = decision.get("account_refs")
+
+                if refs:
+
+                    return (
+                        self._explain_account_download(
+                            refs[0]
+                        )
+                    )
 
                 tool_data = self.router.execute(
                     tool,
@@ -1722,14 +2055,49 @@ Answer naturally as a laptop assistant.
 
             # -------------------------------------------------
             # Google Drive Upload
+            #
+            # With an explicit account reference the
+            # destination is exact. Without one, behavior is
+            # unchanged (default provider). Uploading to an
+            # ambiguous account never silently picks.
             # -------------------------------------------------
 
             elif tool == "cloud_upload":
 
-                tool_data = self.router.execute(
-                    tool,
-                    decision.get("path"),
-                )
+                refs = decision.get("account_refs")
+
+                if refs:
+
+                    destination = (
+                        self.router.resolve_account(
+                            refs[0]
+                        )
+                    )
+
+                    if destination is None:
+
+                        return (
+                            self._list_accounts_message(
+                                "I couldn't find "
+                                "that Google Drive "
+                                "account."
+                            )
+                        )
+
+                    tool_data = (
+                        self.router.drive_manager
+                        .upload_to_account(
+                            destination["id"],
+                            decision.get("path"),
+                        )
+                    )
+
+                else:
+
+                    tool_data = self.router.execute(
+                        tool,
+                        decision.get("path"),
+                    )
 
             # -------------------------------------------------
             # Google Drive Delete
@@ -1742,8 +2110,13 @@ Answer naturally as a laptop assistant.
 
             elif tool == "cloud_delete":
 
+                refs = decision.get("account_refs")
+
+                selector = refs[0] if refs else None
+
                 return self._propose_cloud_delete(
-                    decision.get("query")
+                    decision.get("query"),
+                    selector=selector,
                 )
 
             # -------------------------------------------------

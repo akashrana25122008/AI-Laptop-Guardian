@@ -19,7 +19,28 @@ class Planner:
     # Upload report.pdf to the cloud
 
     CLOUD_EXPLICIT_PATTERN = re.compile(
-        r"\b(?:google\s+drive|gdrive|cloud)\b"
+        r"\b(?:google\s+drives?|gdrive|cloud)\b"
+    )
+
+    # Explicit multi-account references.
+    #
+    # Examples:
+    #     Search account 2 for report.pdf
+    #     Download backup.zip from account number 3
+    #     Show files in account-1
+
+    ACCOUNT_REF_PATTERN = re.compile(
+        r"\baccounts?\s*(?:number\s*)?#?\s*(\d+)\b"
+    )
+
+    # Explicit ALL-accounts scoping.
+    #
+    # Example:
+    #     Search all my connected Google Drives for x
+
+    ALL_ACCOUNTS_PATTERN = re.compile(
+        r"\ball\s+(?:my\s+)?(?:connected\s+)?"
+        r"(?:google\s+)?drives?\b"
     )
 
     # Local machine drive references.
@@ -87,7 +108,7 @@ class Planner:
         if self.LOCAL_DRIVE_PATTERN.search(text):
             return False
 
-        return bool(re.search(r"\bdrive\b", text))
+        return bool(re.search(r"\bdrives?\b", text))
 
     def _is_cloud_search_request(self, text):
         """
@@ -119,6 +140,141 @@ class Planner:
 
     def plan(self, user_message: str):
         text = user_message.lower().strip()
+
+        # =====================================================
+        # MULTI-ACCOUNT CLOUD CONTEXT
+        # =====================================================
+
+        account_refs = (
+            self.ACCOUNT_REF_PATTERN.findall(text)
+        )
+
+        scope_all = bool(
+            self.ALL_ACCOUNTS_PATTERN.search(text)
+        )
+
+        # =====================================================
+        # EXPLICIT ACCOUNT-REFERENCED CLOUD OPERATIONS
+        # =====================================================
+        # "Search account 2 for report.pdf" names a
+        # connected account explicitly, which is cloud
+        # intent even without the word "drive".
+        #
+        # Local drive references always stay local.
+        # =====================================================
+
+        if (
+            account_refs
+            and re.search(
+                r"\b(?:search|find|download|upload|backup"
+                r"|delete|remove)\b",
+                text,
+            )
+            and not self.LOCAL_DRIVE_PATTERN.search(
+                text
+            )
+            and not self.CLOUD_EXPLICIT_PATTERN.search(
+                text
+            )
+        ):
+
+            if re.search(
+                r"\bdownload\b",
+                text,
+            ):
+
+                query = None
+
+                match = re.search(
+                    r"download\s+(.+?)\s+from\s+"
+                    r"accounts?\s*(?:number\s*)?\d+",
+                    user_message,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    query = match.group(1).strip()
+
+                return {
+                    "tool": "cloud_download",
+                    "action": "download",
+                    "query": query or "",
+                    "account_refs": account_refs,
+                }
+
+            if re.search(
+                r"\b(?:upload|backup)\b",
+                text,
+            ):
+
+                query = None
+
+                match = re.search(
+                    r"(?:upload|backup)\s+(.+?)\s+to\s+"
+                    r"accounts?\s*(?:number\s*)?\d+",
+                    user_message,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    query = match.group(1).strip()
+
+                return {
+                    "tool": "cloud_upload",
+                    "action": "upload",
+                    "path": query or "",
+                    "account_refs": account_refs,
+                }
+
+            if re.search(
+                r"\b(?:delete|remove)\b",
+                text,
+            ):
+
+                query = None
+
+                match = re.search(
+                    r"(?:delete|remove)\s+(.+?)\s+from\s+"
+                    r"accounts?\s*(?:number\s*)?\d+",
+                    user_message,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    query = match.group(1).strip()
+
+                return {
+                    "tool": "cloud_delete",
+                    "action": "delete",
+                    "query": query or "",
+                    "account_refs": account_refs,
+                }
+
+            query = None
+
+            for pattern in [
+                r"(?:search|find)\s+accounts?\s*"
+                r"(?:number\s*)?\d+\s+for\s+(.+)",
+                r"(?:search|find)\s+(?:for\s+)?(.+?)\s+"
+                r"(?:on|in|from)\s+accounts?\s*\d+",
+            ]:
+
+                match = re.search(
+                    pattern,
+                    user_message,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    query = match.group(1).strip()
+                    break
+
+            return {
+                "tool": "cloud_search",
+                "action": "search",
+                "query": query or "",
+                "account_refs": account_refs,
+            }
 
         # =====================================================
         # GOOGLE DRIVE - DELETE
@@ -169,6 +325,7 @@ class Planner:
                 "tool": "cloud_delete",
                 "action": "delete",
                 "query": query or "",
+                "account_refs": account_refs,
             }
 
         # =====================================================
@@ -205,6 +362,7 @@ class Planner:
                 "tool": "cloud_download",
                 "action": "download",
                 "query": query or "",
+                "account_refs": account_refs,
             }
 
         # =====================================================
@@ -249,6 +407,7 @@ class Planner:
                 "tool": "cloud_upload",
                 "action": "upload",
                 "path": file_path or "",
+                "account_refs": account_refs,
             }
 
         # =====================================================
@@ -259,7 +418,7 @@ class Planner:
 
             patterns = [
                 r"(?:search|find)\s+(?:for\s+)?(.+?)\s+in\s+(?:my\s+)?(?:google\s+)?drive",
-                r"(?:search|find)\s+(?:my\s+)?(?:google\s+)?drive\s+(?:for\s+)?(.+)",
+                r"(?:search|find)\s+(?:all\s+)?(?:my\s+)?(?:connected\s+)?(?:google\s+)?drives?\s+(?:for\s+)?(.+)",
                 r"(?:files?\s+in\s+(?:my\s+)?(?:google\s+)?drive)\s+(?:about|named|called)\s+(.+)",
             ]
 
@@ -297,6 +456,10 @@ class Planner:
                 "tool": "cloud_search",
                 "action": "search",
                 "query": query or "",
+                "account_refs": account_refs,
+                "scope": (
+                    "all" if scope_all else None
+                ),
             }
 
         # =====================================================

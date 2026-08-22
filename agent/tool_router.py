@@ -4,6 +4,7 @@ from agent.result_contract import (
 )
 
 from cloud.google_drive import GoogleDriveProvider
+from cloud.multi_drive import MultiAccountDriveManager
 
 from tools.battery.battery import BatteryTool
 from tools.cpu.cpu import CPUTool
@@ -88,6 +89,17 @@ class ToolRouter:
         # =====================================================
 
         self.google_drive = GoogleDriveProvider()
+
+        # =====================================================
+        # MULTI-ACCOUNT GOOGLE DRIVE
+        #
+        # The legacy single-account provider above stays the
+        # default so all existing behavior is preserved.
+        # Account-aware operations go through drive_manager,
+        # where every operation names its exact account.
+        # =====================================================
+
+        self.drive_manager = MultiAccountDriveManager()
 
     # =========================================================
     # RESULT NORMALIZATION
@@ -294,14 +306,24 @@ class ToolRouter:
     # GOOGLE DRIVE DELETE (CONFIRMED TARGET ONLY)
     # =========================================================
 
-    def execute_delete_by_id(self, file_id, name=None):
+    def execute_delete_by_id(
+        self,
+        file_id,
+        name=None,
+        account_id=None,
+    ):
         """
         Delete one exact Google Drive file by ID.
 
         This method is intentionally reachable ONLY through
         agent.action_safety confirmation. It never searches
-        by name again, so a confirmation can never be applied
-        to a different file.
+        by name again, so a confirmation can never be
+        applied to a different file.
+
+        When `account_id` is provided, the deletion runs
+        against THAT account's isolated session only; an
+        unknown or disconnected account fails safely
+        instead of falling back to another account.
         """
 
         if not file_id or not str(file_id).strip():
@@ -314,11 +336,151 @@ class ToolRouter:
                 ),
             }
 
+        if account_id:
+
+            return (
+                self.drive_manager.delete_from_account(
+                    str(account_id),
+                    str(file_id).strip(),
+                )
+            )
+
         return self._run_tool(
             "cloud_delete",
             self.google_drive.delete_file_by_id,
             str(file_id).strip(),
         )
+
+    # =========================================================
+    # MULTI-ACCOUNT CLOUD SEARCH (READ-ONLY)
+    # =========================================================
+
+    def execute_cloud_search_scoped(
+        self,
+        query,
+        selector=None,
+        scope_all=False,
+    ):
+        """
+        Search Google Drive with deterministic account
+        scoping:
+
+            - explicit account reference (number / id /
+              email) when given,
+            - ALL connected accounts only when clearly
+              requested,
+            - the single connected account automatically
+              when exactly one exists,
+            - otherwise a needs_selection result listing
+              accounts (never a silent pick).
+        """
+
+        account_ids = None
+
+        if selector is not None:
+
+            account = (
+                self.drive_manager.registry.resolve_selector(
+                    selector
+                )
+            )
+
+            if account is None:
+
+                return {
+                    "success": False,
+                    "tool": "cloud_search",
+                    "error": (
+                        f"Could not find a connected "
+                        f"account matching "
+                        f"'{selector}'."
+                    ),
+                    "accounts": (
+                        self.drive_manager.describe_accounts()
+                    ),
+                }
+
+            account_ids = [account.id]
+
+        # Legacy single-provider behavior: when no
+        # accounts were ever registered, keep using the
+        # default provider exactly as before so existing
+        # flows and tests are preserved.
+
+        if (
+            selector is None
+            and not scope_all
+            and self.drive_manager.registry.count() == 0
+        ):
+
+            result = self._run_tool(
+                "cloud_search",
+                self.google_drive.search_files,
+                query,
+            )
+
+            return result
+
+        result = (
+            self.drive_manager.search_accounts(
+                query,
+                account_ids=account_ids,
+                scope_all=scope_all,
+            )
+        )
+
+        if (
+            result.get("success")
+            and result.get("error") is None
+        ):
+            result.pop("error", None)
+
+        return result
+
+    # =========================================================
+    # ACCOUNT-BOUND DOWNLOAD (EXACT ACCOUNT + FILE)
+    # =========================================================
+
+    def execute_download_bound(self, account_id, file_id):
+        """
+        Download one exact file from ONE exact account.
+
+        Used by numbered download selections that carry
+        account identity, so 'Download number 2' can never
+        resolve to a similarly named file on another
+        account.
+        """
+
+        return self.drive_manager.download_from_account(
+            account_id,
+            file_id,
+        )
+
+    # =========================================================
+    # ACCOUNT HELPERS
+    # =========================================================
+
+    def describe_connected_accounts(self):
+        """Safe metadata list of connected accounts."""
+
+        return self.drive_manager.describe_accounts()
+
+    def resolve_account(self, selector):
+        """
+        Resolve an account reference (number / id / email)
+        to its safe metadata record, or None.
+        """
+
+        account = (
+            self.drive_manager.registry.resolve_selector(
+                selector
+            )
+        )
+
+        if account is None:
+            return None
+
+        return account.to_dict()
 
     # =========================================================
     # LARGE FILES (READ-ONLY)

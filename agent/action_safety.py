@@ -101,6 +101,7 @@ class PendingAction:
         target_id,
         target_name,
         items=None,
+        account_id=None,
     ):
         self.action_type = str(action_type)
         self.target_id = str(target_id)
@@ -108,10 +109,29 @@ class PendingAction:
 
         self.items = tuple(items) if items else ()
 
+        # Exact cloud account this action is bound to.
+        # A confirmation for account A can never authorize
+        # the same target on account B.
+
+        self.account_id = (
+            str(account_id)
+            if account_id
+            else None
+        )
+
     def describe(self):
         """Human-readable description of the proposed action."""
 
         if self.action_type == "cloud_delete":
+
+            if self.account_id:
+
+                return (
+                    f"Permanently delete "
+                    f"'{self.target_name}' from Google "
+                    f"Drive account {self.account_id}"
+                )
+
             return (
                 f"Permanently delete '{self.target_name}' "
                 f"from Google Drive"
@@ -168,9 +188,19 @@ class ActionSafety:
     # PROPOSE
     # -----------------------------------------------------
 
-    def propose_delete(self, target_id, target_name):
+    def propose_delete(
+        self,
+        target_id,
+        target_name,
+        account_id=None,
+    ):
         """
         Propose a Google Drive deletion.
+
+        When `account_id` is provided, the confirmation is
+        bound to that exact account as well: it can never
+        authorize deleting the same file on a different
+        account.
 
         Does NOT perform any deletion itself.
         """
@@ -184,6 +214,7 @@ class ActionSafety:
             "cloud_delete",
             target_id,
             target_name,
+            account_id=account_id,
         )
 
         return self._pending
