@@ -1,0 +1,12 @@
+from .storage_prompt import build_storage_prompt
+from .battery_prompt import build_battery_prompt
+from .cpu_prompt import build_cpu_prompt
+from .ram_prompt import build_ram_prompt
+from .cleanup_prompt import build_cleanup_prompt
+from .file_inspector_prompt import build_file_inspector_prompt
+
+from .cloud_search_prompt import build_cloud_search_prompt
+from .cloud_download_prompt import build_cloud_download_prompt
+from .cloud_upload_prompt import build_cloud_upload_prompt
+
+from .health_prompt import build_health_prompt
