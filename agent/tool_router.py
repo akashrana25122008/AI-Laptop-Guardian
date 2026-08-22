@@ -11,6 +11,10 @@ from tools.ram.ram import RAMTool
 from tools.health.health import HealthTool
 from tools.file_inspector.inspector import FileInspector
 from tools.storage.scanner import StorageScanner
+from tools.storage.large_files import LargeFileScanner
+from tools.storage.duplicates import DuplicateFileScanner
+from tools.cleanup.cleanup import CleanupTool
+from tools.storage.cleaner import LocalCleaner
 
 
 class ToolRouter:
@@ -26,6 +30,9 @@ class ToolRouter:
             - ram
             - health
             - file_inspector
+            - large_files
+            - duplicates
+            - cleanup_preview
 
         Google Drive:
             - cloud_search
@@ -58,6 +65,23 @@ class ToolRouter:
         self.ram_tool = RAMTool()
         self.health_tool = HealthTool()
         self.file_inspector = FileInspector()
+
+        # =====================================================
+        # STORAGE INTELLIGENCE / CLEANUP
+        # =====================================================
+
+        self.large_file_scanner = LargeFileScanner()
+
+        self.duplicate_scanner = DuplicateFileScanner()
+
+        # Read-only preview of temporary files.
+
+        self.cleanup_preview_tool = CleanupTool()
+
+        # Destructive ONLY through confirmed approval;
+        # see execute_cleanup_deletion().
+
+        self.local_cleaner = LocalCleaner()
 
         # =====================================================
         # GOOGLE DRIVE
@@ -220,6 +244,36 @@ class ToolRouter:
             return self._execute_storage()
 
         # =====================================================
+        # LARGE FILES (READ-ONLY)
+        # =====================================================
+
+        if tool == "large_files":
+            return self._run_tool(
+                "large_files",
+                self._scan_large_files,
+            )
+
+        # =====================================================
+        # DUPLICATES (READ-ONLY)
+        # =====================================================
+
+        if tool == "duplicates":
+            return self._run_tool(
+                "duplicates",
+                self.duplicate_scanner.scan,
+            )
+
+        # =====================================================
+        # CLEANUP PREVIEW (READ-ONLY, NEVER DELETES)
+        # =====================================================
+
+        if tool == "cleanup_preview":
+            return self._run_tool(
+                "cleanup_preview",
+                self.cleanup_preview_tool.preview,
+            )
+
+        # =====================================================
         # FILE INSPECTOR
         # =====================================================
 
@@ -264,6 +318,67 @@ class ToolRouter:
             "cloud_delete",
             self.google_drive.delete_file_by_id,
             str(file_id).strip(),
+        )
+
+    # =========================================================
+    # LARGE FILES (READ-ONLY)
+    # =========================================================
+
+    def _scan_large_files(self):
+        """
+        Wrap the large-file scanner list into the normalized
+        result contract.
+        """
+
+        files = self.large_file_scanner.scan()
+
+        total_bytes = sum(
+            entry.get("size_bytes", 0)
+            for entry in files
+        )
+
+        return {
+            "success": True,
+            "tool": "large_files",
+            "data": {
+                "files": files,
+                "count": len(files),
+                "total_mb": round(
+                    total_bytes / (1024 ** 2),
+                    2,
+                ),
+            },
+        }
+
+    # =========================================================
+    # CLEANUP DELETE (CONFIRMED SET ONLY)
+    # =========================================================
+
+    def execute_cleanup_deletion(self, items):
+        """
+        Delete an exact, previously approved set of local
+        files.
+
+        This method is intentionally reachable ONLY through
+        agent.action_safety confirmation. It executes exactly
+        the approved snapshots; it never re-scans and never
+        broadens the set.
+        """
+
+        if not isinstance(items, list) or not items:
+            return {
+                "success": False,
+                "tool": "cleanup_delete",
+                "error": (
+                    "No approved cleanup items "
+                    "were provided."
+                ),
+            }
+
+        return self._run_tool(
+            "cleanup_delete",
+            self.local_cleaner.delete_approved,
+            items,
         )
 
     # =========================================================

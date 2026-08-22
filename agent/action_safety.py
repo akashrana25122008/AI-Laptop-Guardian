@@ -89,12 +89,24 @@ class PendingAction:
 
     The confirmation is bound to the exact target recorded
     here; it can never authorize a different file or action.
+
+    For file-set actions (local cleanup), `items` holds the
+    exact approved snapshots. A confirmation can never
+    authorize files that are not in this list.
     """
 
-    def __init__(self, action_type, target_id, target_name):
+    def __init__(
+        self,
+        action_type,
+        target_id,
+        target_name,
+        items=None,
+    ):
         self.action_type = str(action_type)
         self.target_id = str(target_id)
         self.target_name = str(target_name)
+
+        self.items = tuple(items) if items else ()
 
     def describe(self):
         """Human-readable description of the proposed action."""
@@ -103,6 +115,13 @@ class PendingAction:
             return (
                 f"Permanently delete '{self.target_name}' "
                 f"from Google Drive"
+            )
+
+        if self.action_type == "cleanup_delete":
+            return (
+                f"Permanently delete {len(self.items)} "
+                f"approved temporary file(s) "
+                f"({self.target_name})"
             )
 
         return (
@@ -165,6 +184,58 @@ class ActionSafety:
             "cloud_delete",
             target_id,
             target_name,
+        )
+
+        return self._pending
+
+    def propose_cleanup(self, items):
+        """
+        Propose deleting an exact set of local files.
+
+        `items` must be the snapshot list produced by the
+        deterministic cleanup preview. The confirmation can
+        never authorize anything outside this list.
+
+        Does NOT perform any deletion itself.
+        """
+
+        if not isinstance(items, list) or not items:
+            raise ValueError(
+                "A pending cleanup requires at "
+                "least one approved item."
+            )
+
+        total_bytes = 0
+
+        for item in items:
+
+            if not isinstance(item, dict):
+                raise ValueError(
+                    "Cleanup items must be snapshots."
+                )
+
+            if not item.get("path"):
+                raise ValueError(
+                    "Every cleanup item needs a path."
+                )
+
+            size = item.get("size_bytes")
+
+            if not isinstance(size, (int, float)):
+                raise ValueError(
+                    "Every cleanup item needs a size."
+                )
+
+            total_bytes += size
+
+        self._pending = PendingAction(
+            "cleanup_delete",
+            f"set:{len(items)}",
+            (
+                f"{len(items)} file(s), "
+                f"{round(total_bytes / (1024 ** 2), 2)} MB"
+            ),
+            items=items,
         )
 
         return self._pending

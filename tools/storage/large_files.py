@@ -1,10 +1,21 @@
 import os
 from pathlib import Path
 
+from tools.file_inspector.inspector import FileInspector
+
 
 class LargeFileScanner:
     """
     Scans common user folders for large files.
+
+    Safety properties:
+
+        - Never reads file contents.
+        - Never modifies anything.
+        - Skips symlinks and junctions.
+        - Excludes sensitive files (credentials, keys,
+          tokens) by deterministic path policy.
+        - Handles inaccessible files/folders gracefully.
     """
 
     def __init__(self, min_size_mb=500):
@@ -13,6 +24,7 @@ class LargeFileScanner:
     def get_scan_locations(self):
         """
         Returns common user folders.
+        Tests may inject their own sandbox folders.
         """
         home = Path.home()
 
@@ -26,33 +38,91 @@ class LargeFileScanner:
 
         return [folder for folder in folders if folder.exists()]
 
-    def scan(self):
+    def scan(self, folders=None):
         """
-        Returns a list of large files.
+        Returns a list of large files, largest first.
+
+        `folders` allows callers (and tests) to restrict the
+        scan to specific directories. Defaults to the
+        standard user folders.
         """
+
+        if folders is not None:
+            locations = [
+                Path(folder)
+                for folder in folders
+                if Path(folder).exists()
+            ]
+
+        else:
+            locations = self.get_scan_locations()
+
+        inspector = FileInspector()
+
         results = []
 
-        for folder in self.get_scan_locations():
+        for folder in locations:
 
-            for root, dirs, files in os.walk(folder):
+            try:
 
-                for file in files:
+                for root, dirs, files in os.walk(folder):
 
-                    try:
-                        file_path = os.path.join(root, file)
+                    # Do not descend into links/junctions.
 
-                        size = os.path.getsize(file_path)
+                    dirs[:] = [
+                        d
+                        for d in dirs
+                        if not (
+                            Path(root) / d
+                        ).is_symlink()
+                    ]
 
-                        if size >= self.min_size_bytes:
+                    for file in files:
 
-                            results.append({
-                                "name": file,
-                                "path": file_path,
-                                "size_gb": round(size / (1024 ** 3), 2)
-                            })
+                        try:
+                            file_path = Path(root) / file
 
-                    except (PermissionError, FileNotFoundError):
-                        continue
+                            if file_path.is_symlink():
+                                continue
+
+                            if (
+                                inspector._is_sensitive_path(
+                                    file_path
+                                )
+                            ):
+                                continue
+
+                            size = file_path.stat().st_size
+
+                            if size >= self.min_size_bytes:
+
+                                results.append({
+                                    "name": file,
+                                    "path": str(file_path),
+                                    "size_gb": round(
+                                        size / (1024 ** 3),
+                                        2,
+                                    ),
+                                    "size_mb": round(
+                                        size / (1024 ** 2),
+                                        2,
+                                    ),
+                                    "size_bytes": size,
+                                })
+
+                        except (
+                            PermissionError,
+                            FileNotFoundError,
+                            OSError,
+                        ):
+                            continue
+
+            except (
+                PermissionError,
+                FileNotFoundError,
+                OSError,
+            ):
+                continue
 
         results.sort(
             key=lambda file: file["size_gb"],

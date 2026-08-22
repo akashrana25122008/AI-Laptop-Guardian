@@ -3,6 +3,9 @@ from .battery_prompt import build_battery_prompt
 from .cpu_prompt import build_cpu_prompt
 from .ram_prompt import build_ram_prompt
 from .cleanup_prompt import build_cleanup_prompt
+from .cleanup_preview_prompt import build_cleanup_preview_prompt
+from .large_files_prompt import build_large_files_prompt
+from .duplicates_prompt import build_duplicates_prompt
 from .file_inspector_prompt import build_file_inspector_prompt
 
 from .cloud_search_prompt import build_cloud_search_prompt

@@ -350,6 +350,115 @@ class Planner:
                 }
 
         # =====================================================
+        # DUPLICATE FILES (LOCAL, READ-ONLY)
+        # =====================================================
+
+        if re.search(r"\bduplicat", text):
+
+            return {
+                "tool": "duplicates",
+                "action": "scan",
+            }
+
+        # =====================================================
+        # LARGE FILES (LOCAL, READ-ONLY)
+        # =====================================================
+
+        if re.search(
+            r"\blarge(?:st)?\s+files?\b",
+            text,
+        ):
+
+            return {
+                "tool": "large_files",
+                "action": "scan",
+            }
+
+        # =====================================================
+        # CLEANUP - DESTRUCTIVE INTENT
+        # =====================================================
+        # A delete/remove verb combined with temporary-file
+        # wording becomes a PROPOSAL request. The actual
+        # deletion always requires explicit confirmation
+        # through agent.action_safety.
+        #
+        # Word boundaries keep "temperature" away from
+        # "temp".
+        #
+        # This block sits AFTER every Google Drive block,
+        # so remaining requests are purely local.
+        # =====================================================
+
+        if (
+            re.search(
+                r"\b(?:delete|remove)\b",
+                text,
+            )
+            and re.search(
+                r"\b(?:"
+                r"temps?"
+                r"|temporary"
+                r"|tmp"
+                r"|junk"
+                r"|cleanup"
+                r"|candidates?"
+                r")\b",
+                text,
+            )
+        ):
+
+            return {
+                "tool": "cleanup_delete",
+                "action": "request",
+            }
+
+        # =====================================================
+        # CLEANUP - PREVIEW INTENT
+        # =====================================================
+        # Local drive questions such as "Clean up my local
+        # drive" keep their Milestone 3 behavior and stay
+        # with the storage analyzer.
+        # =====================================================
+
+        cleanup_preview_requested = bool(
+            re.search(
+                r"\b(?:"
+                r"cleanup"
+                r"|clean\s*up"
+                r"|junk"
+                r"|candidates?"
+                r"|free\s*up\s+(?:some\s*)?space"
+                r")\b",
+                text,
+            )
+            or any(
+                phrase in text
+                for phrase in [
+                    "safely clean",
+                    "safe to clean",
+                    "safe to delete",
+                    "safe to remove",
+                    "what can i delete",
+                    "what can be cleaned",
+                    "what can be safely cleaned",
+                    "show cleanup candidates",
+                ]
+            )
+        )
+
+        if (
+            cleanup_preview_requested
+            and not self.LOCAL_DRIVE_PATTERN.search(
+                text
+            )
+        ):
+
+            return {
+                "tool": "cleanup_preview",
+                "action": "preview",
+            }
+
+        # =====================================================
         # STORAGE
         # =====================================================
 

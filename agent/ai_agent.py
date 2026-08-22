@@ -1,3 +1,5 @@
+import os
+
 from agent.ollama_client import OllamaClient
 from agent.planner import Planner
 from agent.tool_router import ToolRouter
@@ -13,6 +15,9 @@ from agent.action_safety import (
 
 from agent.templates import (
     build_storage_prompt,
+    build_large_files_prompt,
+    build_duplicates_prompt,
+    build_cleanup_preview_prompt,
     build_battery_prompt,
     build_cpu_prompt,
     build_ram_prompt,
@@ -37,6 +42,9 @@ PROMPT_BUILDERS = {
     "ram": build_ram_prompt,
     "health": build_health_prompt,
     "cleanup": build_cleanup_prompt,
+    "cleanup_preview": build_cleanup_preview_prompt,
+    "large_files": build_large_files_prompt,
+    "duplicates": build_duplicates_prompt,
     "file_inspector": build_file_inspector_prompt,
 
     # Google Drive
@@ -1179,8 +1187,8 @@ Answer naturally as a laptop assistant.
 
     def _execute_confirmed_deletion(self):
         """
-        Execute a confirmed Google Drive deletion exactly
-        once, against the exact confirmed target.
+        Execute a confirmed destructive action exactly once,
+        against the exact confirmed target or target set.
         """
 
         pending = self.safety.get_pending()
@@ -1189,6 +1197,12 @@ Answer naturally as a laptop assistant.
         # valid for exactly one execution attempt.
 
         self.safety.clear()
+
+        if pending.action_type == "cleanup_delete":
+
+            return self._execute_cleanup_deletion(
+                pending
+            )
 
         try:
 
@@ -1229,6 +1243,189 @@ Answer naturally as a laptop assistant.
             f"'{pending.target_name}'.\n\n"
             f"Reason: {error}"
         )
+
+    def _execute_cleanup_deletion(self, pending):
+        """
+        Execute a confirmed local cleanup against the exact
+        approved file snapshots.
+        """
+
+        approved = [dict(i) for i in pending.items]
+
+        try:
+
+            result = (
+                self.router.execute_cleanup_deletion(
+                    approved
+                )
+            )
+
+        except Exception as e:
+
+            return (
+                "The cleanup could not be executed.\n\n"
+                f"Reason: {e}"
+            )
+
+        result = ensure_result(
+            result,
+            "cleanup_delete",
+        )
+
+        data = result.get("data") or {}
+
+        if is_successful_result(result):
+
+            message = result.get("message")
+
+            if message:
+                return str(message)
+
+            return (
+                f"Cleanup finished. Deleted "
+                f"{data.get('deleted_count', 0)} "
+                f"file(s)."
+            )
+
+        error = result.get(
+            "error",
+            "Unknown error.",
+        )
+
+        return (
+            "The cleanup was not executed.\n\n"
+            f"Reason: {error}"
+        )
+
+    def _propose_local_cleanup(self):
+        """
+        Build a deterministic cleanup proposal WITHOUT
+        deleting anything.
+
+        The exact candidate set (path, size, mtime) is
+        snapshotted now; only an explicit confirmation in a
+        following message can delete exactly this set.
+        """
+
+        preview_data = self.router.execute(
+            "cleanup_preview"
+        )
+
+        preview_data = ensure_result(
+            preview_data,
+            "cleanup_preview",
+        )
+
+        if not is_successful_result(preview_data):
+
+            return (
+                "I couldn't scan for cleanup "
+                "candidates.\n\n"
+                f"Reason: "
+                f"{preview_data.get('error', 'Unknown error.')}"
+            )
+
+        candidates = (
+            preview_data.get("data", {}).get(
+                "candidates",
+                [],
+            )
+        )
+
+        if not candidates:
+
+            return (
+                "I found no safe temporary-file "
+                "candidates to clean right now.\n\n"
+                "Nothing was deleted."
+            )
+
+        # -----------------------------------------------------
+        # Snapshot the exact approved set (fail-safe):
+        # files that cannot be verified are excluded.
+        # -----------------------------------------------------
+
+        snapshots = []
+        excluded = 0
+
+        for candidate in candidates:
+
+            path = candidate.get("path")
+
+            try:
+                stat = os.stat(path)
+
+                snapshots.append(
+                    {
+                        "path": str(path),
+                        "size_bytes": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    }
+                )
+
+            except OSError:
+
+                excluded += 1
+
+        if not snapshots:
+
+            return (
+                "The temporary files could not be "
+                "verified safely, so I will not "
+                "propose any deletion.\n\n"
+                "Nothing was deleted."
+            )
+
+        total_mb = round(
+            sum(
+                s["size_bytes"]
+                for s in snapshots
+            )
+            / (1024 ** 2),
+            2,
+        )
+
+        self.safety.propose_cleanup(snapshots)
+
+        lines = [
+            "⚠️ Proposed destructive action:\n",
+            "These files can be removed:",
+            "",
+        ]
+
+        for index, snapshot in enumerate(
+            snapshots,
+            start=1,
+        ):
+
+            size_mb = round(
+                snapshot["size_bytes"] / (1024 ** 2),
+                2,
+            )
+
+            lines.append(
+                f"{index}. {snapshot['path']} — "
+                f"{size_mb} MB"
+            )
+
+        lines.extend([
+            "",
+            f"Space to free: {total_mb} MB",
+            "",
+            "This cannot be undone.",
+            "Reply 'confirm delete' to permanently "
+            "delete exactly these files, or 'cancel' "
+            "to stop.",
+        ])
+
+        if excluded:
+
+            lines.append(
+                f"({excluded} additional file(s) could "
+                f"not be verified and were not included.)"
+            )
+
+        return "\n".join(lines)
 
     def _propose_cloud_delete(self, query):
         """
@@ -1548,6 +1745,18 @@ Answer naturally as a laptop assistant.
                 return self._propose_cloud_delete(
                     decision.get("query")
                 )
+
+            # -------------------------------------------------
+            # Local Cleanup Delete
+            #
+            # Same principle: propose only, never delete.
+            # The exact candidate set is snapshotted and the
+            # user must confirm explicitly.
+            # -------------------------------------------------
+
+            elif tool == "cleanup_delete":
+
+                return self._propose_local_cleanup()
 
             # -------------------------------------------------
             # All local tools
