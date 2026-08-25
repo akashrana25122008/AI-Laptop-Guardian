@@ -615,3 +615,109 @@ preview, dashboard cards.
 
 770 tests pass, 0 fail, 3 skipped (2 Windows symlinks,
 1 Tk environment limitation).
+
+---
+
+## Milestone 14 — Release Candidate & Windows Packaging
+
+### What Changed
+
+M14 turns the project into a Windows release candidate with
+centralized versioning, packaging infrastructure, startup
+validation, minimal logging, and first-run environment checks.
+
+### Centralized Version
+
+`app/version.py` contains `__version__ = "0.14.0"` — the
+single source of truth for the application version. The
+controller and Settings view now read from this module.
+
+### Resource Path Helpers
+
+`app/paths.py` provides four helpers for source vs packaged
+modes:
+
+- `app_root()` — application root (project root or PyInstaller `_MEIPASS`)
+- `user_data_dir()` — writable directory for mutable state
+- `ensure_user_data_dir()` — create data + tokens dirs
+- `resource_path(rel)` — resolve bundled resource paths
+
+In packaged mode, `user_data_dir()` defaults to
+`%LOCALAPPDATA%/AI-Laptop-Guardian` so tokens and account
+registry are stored outside the app bundle.
+
+### First-Run Environment Checks
+
+`app/env_check.py` validates the runtime environment at
+startup:
+
+- Python version (>= 3.9)
+- CustomTkinter availability
+- psutil availability
+- Ollama client (optional)
+- Google Drive deps (optional)
+- User data directory creation
+
+Critical check failures abort with a clear error message.
+Optional failures are logged but allow startup to proceed.
+
+### Minimal Logging
+
+`app/logging_setup.py` configures a root logger that writes
+to `<user_data_dir>/logs/app.log`. Logs never contain
+credentials, OAuth tokens, client secrets, or sensitive
+file contents.
+
+### Packaging Infrastructure
+
+| Artifact | Purpose |
+|---|---|
+| `AI-Laptop-Guardian.spec` | PyInstaller folder-based build |
+| `scripts/build_windows.py` | Clean, build, report release size |
+| `.gitignore` additions | `build/`, `dist/` excluded |
+
+The build excludes credentials, tokens, cloud data, virtual
+environments, tests, and non-essential third-party packages.
+
+### Startup Integration
+
+`ui/app.py` now runs `app.env_check.run_all_checks()`
+before creating the window. Critical failures (missing
+Python, missing CustomTkinter, missing psutil) are caught
+before the first widget is drawn.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `app/__init__.py` | New: application package |
+| `app/version.py` | New: centralized version |
+| `app/paths.py` | New: resource path helpers |
+| `app/env_check.py` | New: startup validation |
+| `app/logging_setup.py` | New: minimal logging |
+| `ui/app_controller.py` | Imports `__version__`, uses it in `get_settings()` |
+| `ui/app.py` | Runs `run_all_checks()` on startup |
+| `AI-Laptop-Guardian.spec` | New: PyInstaller spec |
+| `scripts/build_windows.py` | New: build script |
+| `.gitignore` | Added `build/`, `dist/` |
+| `README.md` | Updated version, added build/run instructions |
+| `tests/test_m14_release_candidate.py` | New: 58 M14 tests |
+
+### Tests
+
+58 new tests covering:
+
+- Version module (shape, import, non-placeholder)
+- Resource paths (root, resource_path, user data, tokens)
+- Environment checks (all checks, summary, critical failure)
+- Logging setup
+- Packaging config (spec file, build script validity)
+- .gitignore coverage
+- Safety regression (no tracked credentials, controller uses version)
+- Data directory creation
+- Navigation consistency
+
+### Test Results
+
+828 tests pass, 0 fail, 3 skipped (2 Windows symlinks,
+1 Tk environment limitation).

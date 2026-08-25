@@ -18,6 +18,7 @@ from agent.result_contract import (
     is_successful_result,
 )
 
+from app.version import __version__
 from ui.navigation import NAV_ITEMS
 
 
@@ -629,7 +630,7 @@ class GuardianController:
             "model": model,
             "ollama_status": ollama_status,
             "token_dir": token_dir,
-            "version": "Milestone 11",
+            "version": __version__,
             "theme": "System",
         }
 

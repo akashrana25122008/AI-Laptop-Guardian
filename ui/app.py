@@ -272,6 +272,19 @@ class GuardianApp(ctk.CTk):
 
 
 def main():
+    """Launch the desktop application with startup validation."""
+    from app.env_check import run_all_checks
+
+    checks = run_all_checks()
+    critical = [c for c in checks if not c.get("optional") and not c["ok"]]
+    if critical:
+        msgs = "\n".join(
+            f"  [{c['name']}] {c['detail']}" for c in critical
+        )
+        raise SystemExit(
+            "Environment check failed:\n" + msgs
+        )
+
     app = GuardianApp()
 
     app.mainloop()

@@ -15,3 +15,8 @@ reports/
 .env
 
 *.log
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak

@@ -1,4 +1,4 @@
-# AI Laptop Guardian 🤖💻
+# AI Laptop Guardian
 
 An offline AI-powered Windows assistant that analyzes your laptop's health, explains issues in plain English, and helps clean unnecessary files safely.
 
@@ -36,14 +36,33 @@ An offline AI-powered Windows assistant that analyzes your laptop's health, expl
 
 ```text
 AI-Laptop-Guardian/
-├── app.py
+├── app/
 ├── ui/
+├── cloud/
 ├── tools/
 ├── agent/
 ├── reports/
 ├── tests/
 └── logs/
 ```
+
+## Running from source
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m ui.app
+```
+
+## Building a Windows release
+
+Requires PyInstaller (`pip install pyinstaller`):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_windows.py
+```
+
+The release is placed in `dist/AI-Laptop-Guardian/`.
 
 ## Roadmap
 
@@ -60,6 +79,6 @@ AI-Laptop-Guardian/
 
 ## Status
 
-Current Version: **v0.2.0**
+Current Version: **v0.14.0**
 
 This project is under active development.
