@@ -345,3 +345,66 @@ Milestone 9 test coverage lives in:
 - `tests/test_auth_status_security.py`
 - `tests/test_planner_milestone9.py`
 - `tests/test_agent_account_management.py`
+
+## Milestone 10: Desktop UI Foundation
+
+Milestone 10 adds a thin, headless-testable desktop
+interface using customtkinter. The UI is a presentation
+layer over the existing M1–M9 backend. It never performs
+business logic, never bypasses safety mechanisms, and
+never exposes credentials or tokens.
+
+### Architecture
+
+```
+ui/
+├── __init__.py
+├── app.py              # CTk shell + entry point
+├── app_controller.py   # headless GuardianController
+├── components.py       # format helpers
+├── navigation.py       # view keys + labels
+└── views/
+    ├── __init__.py
+    ├── dashboard.py
+    ├── health_view.py
+    ├── storage_view.py
+    ├── cleanup_view.py
+    ├── cloud_view.py
+    ├── accounts_view.py
+    └── settings_view.py
+```
+
+GuardianController is the sole backend gateway. Views
+are display-only and call controller methods. Background
+work uses `run_in_background()` with `after()` marshaling.
+
+### Available Views
+
+1. **Dashboard** — status cards + assistant chat
+2. **Health** — health score, components, recommendations
+3. **Storage** — drives, large files, duplicates
+4. **Cleanup** — scan → preview → confirm → cancel flow
+5. **Cloud** — Google Drive summary, large, duplicates
+6. **Accounts** — list, connect, disconnect
+7. **Settings** — theme, model, Ollama status, version
+
+### Security Guarantees
+
+- No OAuth on startup or view navigation.
+- Cleanup preserves M6 proposal → confirmation → exact snapshot execution.
+- Disconnect preserves M9 confirmation flow.
+- Credentials, tokens, and client secrets never appear in UI or logs.
+- No network calls in UI layer.
+
+### How to Run
+
+```bash
+python -m ui.app
+```
+
+### Tests
+
+Milestone 10 test coverage lives in:
+
+- `tests/test_ui_controller.py` — headless controller tests
+- `tests/test_ui_security_no_auth.py` — security regression

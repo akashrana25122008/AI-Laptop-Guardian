@@ -1,0 +1,289 @@
+import customtkinter as ctk
+
+from ui.components import safe_text
+
+
+class AccountsView(ctk.CTkFrame):
+    """
+    Google account management via Milestone 9 APIs.
+
+    Connect runs the existing OAuth flow in a background
+    thread.  Disconnect uses agent.chat() to route through
+    the existing confirmation layer.
+    """
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color="transparent")
+
+        self.ctrl = controller
+
+        self._body = None
+
+        self._status_label = None
+
+        self._pending_account = None
+
+        self._build()
+
+    def _build(self):
+        self.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self,
+            text="Google Accounts",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).grid(
+            row=0, column=0,
+            padx=20, pady=(20, 10), sticky="w",
+        )
+
+        self._body = ctk.CTkFrame(
+            self, fg_color="transparent"
+        )
+
+        self._body.grid(
+            row=1, column=0,
+            padx=20, pady=(0, 10), sticky="nsew",
+        )
+
+        self.grid_rowconfigure(1, weight=1)
+
+        btn_row = ctk.CTkFrame(
+            self, fg_color="transparent"
+        )
+
+        btn_row.grid(
+            row=2, column=0,
+            padx=20, pady=(0, 20), sticky="ew",
+        )
+
+        ctk.CTkButton(
+            btn_row,
+            text="+ Connect Google Account",
+            command=self._connect,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row,
+            text="Disconnect selected",
+            fg_color="#c0392b",
+            hover_color="#a93226",
+            command=self._disconnect,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row,
+            text="Confirm disconnect",
+            command=self._confirm_disconnect,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row,
+            text="Cancel",
+            command=self._cancel,
+        ).pack(side="left")
+
+        self._status_label = ctk.CTkLabel(
+            btn_row, text="", text_color="gray",
+        )
+
+        self._status_label.pack(
+            side="right", padx=10,
+        )
+
+    def refresh(self):
+        self._reload_async()
+
+    def _reload_async(self):
+        for w in self._body.winfo_children():
+            w.destroy()
+
+        ctk.CTkLabel(
+            self._body,
+            text="Loading accounts...",
+            text_color="gray",
+        ).pack(padx=20, pady=30)
+
+        self.ctrl.run_in_background(
+            self.ctrl.get_accounts,
+            on_done=self._on_accounts,
+            on_error=self._on_error,
+        )
+
+    def _on_accounts(self, result):
+        for w in self._body.winfo_children():
+            w.destroy()
+
+        accounts = (
+            result.get("accounts")
+            if isinstance(result, dict)
+            else None
+        ) or []
+
+        if not accounts:
+            ctk.CTkLabel(
+                self._body,
+                text=(
+                    "No Google accounts connected yet.\n"
+                    "Click '+ Connect Google Account' "
+                    "to start."
+                ),
+            ).pack(padx=20, pady=30)
+            return
+
+        for idx, acc in enumerate(accounts, 1):
+            if not isinstance(acc, dict):
+                continue
+
+            label = acc.get(
+                "label",
+                f"Account {idx}",
+            )
+
+            email = acc.get("email", "")
+
+            status = acc.get("status", "")
+
+            row = ctk.CTkFrame(self._body)
+
+            row.pack(
+                padx=20, pady=4, fill="x",
+            )
+
+            ctk.CTkLabel(
+                row,
+                text=(
+                    f"{idx}. {label}  —  {email}  |  "
+                    f"{status}"
+                ),
+                font=ctk.CTkFont(size=12),
+                anchor="w",
+            ).pack(
+                padx=12, pady=8, side="left",
+            )
+
+    def _connect(self):
+        self._status_label.configure(
+            text="Starting Google authentication...",
+        )
+
+        def work():
+            return self.ctrl.connect_account()
+
+        self.ctrl.run_in_background(
+            work,
+            on_done=self._on_connect_result,
+            on_error=self._on_error,
+        )
+
+    def _on_connect_result(self, result):
+        if isinstance(result, dict):
+            success = result.get("success")
+
+            account = result.get("account") or {}
+
+            if success:
+                self._status_label.configure(
+                    text=(
+                        f"Connected: "
+                        f"{account.get('email', '?')}"
+                    ),
+                )
+
+                self._reload_async()
+
+                return
+
+        msg = (
+            result.get("error", "Unknown error")
+            if isinstance(result, dict)
+            else "Connection did not complete."
+        )
+
+        self._status_label.configure(
+            text=f"Connection failed: {safe_text(msg)}",
+        )
+
+    def _disconnect(self):
+        self._status_label.configure(
+            text=(
+                "Select an account to disconnect, "
+                "then click Confirm disconnect."
+            ),
+        )
+
+    def _confirm_disconnect(self):
+        accounts_data = (
+            self.ctrl.get_accounts()
+        )
+
+        accounts = (
+            accounts_data.get("accounts")
+            if isinstance(accounts_data, dict)
+            else None
+        ) or []
+
+        if not accounts:
+            self._status_label.configure(
+                text="No connected accounts to disconnect."
+            )
+            return
+
+        target = accounts[0]
+
+        email = target.get("email", target.get("id"))
+
+        self._status_label.configure(
+            text=f"Requesting disconnect of {email}...",
+        )
+
+        def work():
+            return self.ctrl.request_disconnect(email)
+
+        self.ctrl.run_in_background(
+            work,
+            on_done=self._on_proposal,
+            on_error=self._on_error,
+        )
+
+    def _on_proposal(self, message):
+        text = safe_text(message)
+
+        if "confirm disconnect" in text.lower():
+            self._pending_account = True
+
+            self._status_label.configure(
+                text=(
+                    "Disconnect proposed.  Click "
+                    "'Confirm disconnect' again to "
+                    "execute, or 'Cancel'."
+                ),
+            )
+            return
+
+        self._pending_account = None
+
+        self._status_label.configure(text=text)
+
+    def _cancel(self):
+        if self._pending_account:
+            result = self.ctrl.cancel_disconnect()
+
+            self._pending_account = None
+
+            self._status_label.configure(
+                text=safe_text(result, "Cancelled."),
+            )
+
+    def _on_error(self, _exc):
+        for w in self._body.winfo_children():
+            w.destroy()
+
+        ctk.CTkLabel(
+            self._body,
+            text=(
+                "Unable to load accounts.\n"
+                "Please try again."
+            ),
+            text_color="#c0392b",
+        ).pack(padx=20, pady=30)
