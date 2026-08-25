@@ -449,3 +449,69 @@ and adds comprehensive integration tests.
 ### Test Results
 
 659 tests pass, 0 fail, 2 skipped (Windows symlinks).
+
+---
+
+## Milestone 12 — Desktop Application Reliability
+
+### What Changed
+
+M12 hardens the desktop UI for production use without
+changing the established backend architecture.
+
+### Background Task Safety
+
+`run_in_background` now marshals callbacks to the main
+thread via `root.after(0, ...)`. This prevents tkinter
+crashes from widget manipulation on background threads.
+In headless mode (no Tk root), callbacks run directly
+for backward compatibility.
+
+### Widget Existence Guards
+
+All `_on_*` callbacks in all 7 views now check
+`winfo_exists()` before manipulating widgets. This
+prevents crashes when background callbacks fire after
+the view or application has been destroyed.
+
+### Clean Shutdown
+
+`WM_DELETE_WINDOW` protocol handler added to
+`GuardianApp`. The `_shutting_down` flag propagates to
+the controller, preventing late callbacks from updating
+a destroyed UI.
+
+### Error Handling
+
+- Synchronous backend calls in cancel paths wrapped in
+  try/except to prevent main-thread crashes.
+- `settings_view` now has isinstance guard on result.
+- Dashboard uses `.get()` for card label access.
+- Navigation keys derived from `NAV_ITEMS` instead of
+  hardcoded set.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `ui/app_controller.py` | Main-thread marshaling, NAV_ITEMS import, shutdown flag |
+| `ui/app.py` | WM_DELETE_WINDOW handler, _root binding, clean shutdown |
+| `ui/views/dashboard.py` | Widget guards, safe key access |
+| `ui/views/health_view.py` | Widget guards |
+| `ui/views/storage_view.py` | Widget guards |
+| `ui/views/cleanup_view.py` | Widget guards, safe cancel |
+| `ui/views/cloud_view.py` | Widget guards |
+| `ui/views/accounts_view.py` | Widget guards, safe disconnect |
+| `ui/views/settings_view.py` | Widget guards, isinstance guard |
+| `tests/test_m12_reliability.py` | New: 53 reliability tests |
+
+### Tests
+
+53 new tests covering controller initialization,
+navigation, background tasks, shutdown, error handling,
+empty/unavailable states, security regressions, and
+view key consistency.
+
+### Test Results
+
+712 tests pass, 0 fail, 2 skipped (Windows symlinks).

@@ -63,6 +63,9 @@ class StorageView(ctk.CTkFrame):
     def _on_loaded(self, triple):
         drives, large, dup = triple
 
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -227,6 +230,9 @@ class StorageView(ctk.CTkFrame):
             ).pack(padx=30, pady=1, anchor="w")
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 

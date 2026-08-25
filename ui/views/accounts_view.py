@@ -113,6 +113,9 @@ class AccountsView(ctk.CTkFrame):
         )
 
     def _on_accounts(self, result):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -194,6 +197,9 @@ class AccountsView(ctk.CTkFrame):
         )
 
     def _on_connect_result(self, result):
+        if not self.winfo_exists():
+            return
+
         if isinstance(result, dict):
             success = result.get("success")
 
@@ -239,9 +245,15 @@ class AccountsView(ctk.CTkFrame):
             )
             return
 
-        accounts_data = (
-            self.ctrl.get_accounts()
-        )
+        try:
+            accounts_data = (
+                self.ctrl.get_accounts()
+            )
+        except Exception:
+            self._status_label.configure(
+                text="Unable to verify accounts."
+            )
+            return
 
         accounts = (
             accounts_data.get("accounts")
@@ -286,6 +298,9 @@ class AccountsView(ctk.CTkFrame):
         )
 
     def _on_proposal(self, message):
+        if not self.winfo_exists():
+            return
+
         text = safe_text(message)
 
         if "confirm disconnect" in text.lower():
@@ -315,6 +330,9 @@ class AccountsView(ctk.CTkFrame):
             )
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 

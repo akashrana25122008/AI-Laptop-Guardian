@@ -52,6 +52,8 @@ class GuardianApp(ctk.CTk):
             controller or GuardianController()
         )
 
+        self.ctrl._root = self
+
         self.title("AI Laptop Guardian")
 
         self.geometry("1100x700")
@@ -70,9 +72,15 @@ class GuardianApp(ctk.CTk):
             value="Status: Initializing..."
         )
 
+        self._shutting_down = False
+
         self._build_layout()
 
         self._bind_status_event()
+
+        self.protocol(
+            "WM_DELETE_WINDOW", self._on_close
+        )
 
         self.after(200, self._show_initial_view)
 
@@ -233,7 +241,22 @@ class GuardianApp(ctk.CTk):
     # CLEAN SHUTDOWN
     # =====================================================
 
+    def _on_close(self):
+        """Handle window close button gracefully."""
+        self._shutting_down = True
+        self.ctrl._shutting_down = True
+
+        self._view_cache.clear()
+
+        try:
+            super().destroy()
+        except Exception:
+            pass
+
     def destroy(self):
+        self._shutting_down = True
+        self.ctrl._shutting_down = True
+
         for child in self._content.winfo_children():
             try:
                 child.destroy()
@@ -242,7 +265,10 @@ class GuardianApp(ctk.CTk):
 
         self._view_cache.clear()
 
-        super().destroy()
+        try:
+            super().destroy()
+        except Exception:
+            pass
 
 
 def main():

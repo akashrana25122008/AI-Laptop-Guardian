@@ -119,6 +119,9 @@ class DashboardView(ctk.CTkFrame):
         ).pack(padx=20, pady=30)
 
     def _on_loaded(self, data):
+        if not self.winfo_exists():
+            return
+
         for w in self._cards_frame.winfo_children():
             w.destroy()
 
@@ -143,7 +146,7 @@ class DashboardView(ctk.CTkFrame):
             color = "#2fa572" if ok else "#c0392b"
 
             ctk.CTkLabel(
-                f, text=card["label"],
+                f, text=card.get("label", "?"),
                 font=ctk.CTkFont(size=11, weight="bold"),
                 text_color="gray",
             ).pack(padx=12, pady=(10, 0), anchor="w")
@@ -174,6 +177,9 @@ class DashboardView(ctk.CTkFrame):
             )
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._cards_frame.winfo_children():
             w.destroy()
 
@@ -184,6 +190,9 @@ class DashboardView(ctk.CTkFrame):
         ).pack(padx=20, pady=30)
 
     def _set_assistant(self, text):
+        if not self.winfo_exists():
+            return
+
         self._assistant_output.configure(state="normal")
         self._assistant_output.delete("1.0", "end")
         self._assistant_output.insert("1.0", text)

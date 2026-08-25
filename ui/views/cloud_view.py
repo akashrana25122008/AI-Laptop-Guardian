@@ -112,6 +112,9 @@ class CloudView(ctk.CTkFrame):
         ).pack(padx=20, pady=30)
 
     def _on_summary(self, result):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -217,6 +220,9 @@ class CloudView(ctk.CTkFrame):
             )
 
     def _on_large(self, result):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -264,6 +270,9 @@ class CloudView(ctk.CTkFrame):
             ).pack(padx=30, pady=1, anchor="w")
 
     def _on_dup(self, result):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -312,6 +321,9 @@ class CloudView(ctk.CTkFrame):
             ).pack(padx=30, pady=1, anchor="w")
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 

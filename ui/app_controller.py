@@ -17,6 +17,8 @@ from agent.result_contract import (
     is_successful_result,
 )
 
+from ui.navigation import NAV_ITEMS
+
 
 class GuardianController:
     """
@@ -39,6 +41,10 @@ class GuardianController:
 
         self._last_health = None
 
+        self._root = None
+
+        self._shutting_down = False
+
     # =====================================================
     # NAVIGATION
     # =====================================================
@@ -48,9 +54,9 @@ class GuardianController:
         return self._current_view
 
     def open_view(self, view_key):
-        valid = {"dashboard", "health", "storage",
-                 "cleanup", "cloud", "accounts",
-                 "settings"}
+        valid = {
+            key for key, _ in NAV_ITEMS
+        }
 
         if view_key not in valid:
             raise ValueError(
@@ -639,20 +645,40 @@ class GuardianController:
         """
         Run *fn* in a daemon thread.
 
-        On completion, *on_done(result)* is called.
-        On exception, *on_error(exception)* is called
-        if provided, otherwise the error is silently
-        discarded.
+        On completion, *on_done(result)* is called
+        safely on the main thread.  On exception,
+        *on_error(exception)* is called if provided,
+        otherwise the error is logged and discarded.
+
+        When a Tk root window is available the callbacks
+        are dispatched through ``root.after`` so they
+        always execute on the main thread.  In headless
+        mode (no root) the callbacks run directly.
         """
+
+        root = self._root
 
         def worker():
             try:
                 result = fn()
             except Exception as exc:
                 if on_error is not None:
-                    on_error(exc)
+                    if root is not None:
+                        root.after(
+                            0,
+                            lambda e=exc: on_error(e),
+                        )
+                    else:
+                        on_error(exc)
                 return
-            on_done(result)
+
+            if root is not None:
+                root.after(
+                    0,
+                    lambda r=result: on_done(r),
+                )
+            else:
+                on_done(result)
 
         thread = threading.Thread(
             target=worker, daemon=True

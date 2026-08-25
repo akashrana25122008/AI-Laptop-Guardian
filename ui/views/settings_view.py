@@ -56,8 +56,14 @@ class SettingsView(ctk.CTkFrame):
         )
 
     def _on_loaded(self, settings):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
+
+        if not isinstance(settings, dict):
+            settings = {}
 
         ctk.CTkLabel(
             self._body,
@@ -148,6 +154,9 @@ class SettingsView(ctk.CTkFrame):
             ).pack(side="left")
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 

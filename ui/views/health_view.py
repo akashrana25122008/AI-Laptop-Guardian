@@ -64,6 +64,9 @@ class HealthView(ctk.CTkFrame):
     def _on_loaded(self, pair):
         result, recs = pair
 
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -155,6 +158,9 @@ class HealthView(ctk.CTkFrame):
                 )
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 

@@ -108,6 +108,9 @@ class CleanupView(ctk.CTkFrame):
         )
 
     def _on_preview(self, result):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -201,16 +204,26 @@ class CleanupView(ctk.CTkFrame):
         )
 
     def _cancel(self):
-        if not self.ctrl.agent.safety.has_pending():
+        try:
+            if not self.ctrl.agent.safety.has_pending():
+                return
+        except Exception:
             return
 
-        result = self.ctrl.cancel_cleanup()
+        try:
+            result = self.ctrl.cancel_cleanup()
+        except Exception:
+            result = "Unable to cancel."
 
-        self._status_label.configure(
-            text=str(result),
-        )
+        if self.winfo_exists():
+            self._status_label.configure(
+                text=str(result),
+            )
 
     def _on_result(self, message):
+        if not self.winfo_exists():
+            return
+
         self._current_safe_items = []
 
         self._status_label.configure(
@@ -218,6 +231,9 @@ class CleanupView(ctk.CTkFrame):
         )
 
     def _on_error(self, _exc):
+        if not self.winfo_exists():
+            return
+
         for w in self._body.winfo_children():
             w.destroy()
 
