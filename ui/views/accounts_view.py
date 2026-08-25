@@ -25,6 +25,8 @@ class AccountsView(ctk.CTkFrame):
 
         self._selected_account_id = None
 
+        self._gen_id = 0
+
         self._build()
 
     def _build(self):
@@ -106,7 +108,11 @@ class AccountsView(ctk.CTkFrame):
             text_color="gray",
         ).pack(padx=20, pady=30)
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_accounts,
             on_done=self._on_accounts,
             on_error=self._on_error,
@@ -190,7 +196,9 @@ class AccountsView(ctk.CTkFrame):
         def work():
             return self.ctrl.connect_account()
 
-        self.ctrl.run_in_background(
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
             work,
             on_done=self._on_connect_result,
             on_error=self._on_error,
@@ -291,7 +299,9 @@ class AccountsView(ctk.CTkFrame):
                 email
             )
 
-        self.ctrl.run_in_background(
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
             work,
             on_done=self._on_proposal,
             on_error=self._on_error,

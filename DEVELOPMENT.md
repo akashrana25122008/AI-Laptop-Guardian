@@ -515,3 +515,103 @@ view key consistency.
 ### Test Results
 
 712 tests pass, 0 fail, 2 skipped (Windows symlinks).
+
+---
+
+## Milestone 13 — Real-World Validation & Packaging Readiness
+
+### What Changed
+
+M13 validates the application for real-world local use,
+adds stale-result protection, live Tk smoke tests, and
+prepares a packaging foundation.
+
+### Stale-Result Protection
+
+`run_refresh` wraps `run_in_background` with a generation
+counter per view. Each view bumps `_gen_id` before
+dispatching. When a callback fires, it checks
+`view._gen_id` against the captured generation; if the
+view has moved on, the stale result is silently
+discarded.
+
+This prevents older results from overwriting newer ones
+when rapid tab switching or repeated button presses
+spawn overlapping background tasks.
+
+### Live Tk Smoke Tests
+
+M13 adds a Tk smoke test layer that:
+- Detects whether Tk can initialize
+- Skips gracefully when a display/Tk environment is
+  unavailable
+- Does not fail the entire suite when Tk cannot init
+
+Where Tk is available, tests cover application
+construction, root creation, view navigation, basic
+widget existence, controller shutdown, and root
+destruction.
+
+### Background-Task Robustness
+
+`run_refresh` blocks new work when `_shutting_down` is
+set. Destroyed views (`winfo_exists() == False`) never
+receive stale callbacks.
+
+### Startup Validation
+
+Verified that the application:
+- Does not require Google authentication
+- Does not require Ollama
+- Does not require a connected Google account
+- Does not automatically authenticate or upload files
+- Does not expose credentials
+
+### Local Tool Validation
+
+All local tools produce well-formed result contracts:
+health, storage, large files, duplicates, cleanup
+preview, dashboard cards.
+
+### Packaging Preparation
+
+- `.gitignore` covers credentials, tokens, `.env`,
+  `cloud_data/`, virtual environments
+- No credentials tracked in git
+- No hardcoded paths in UI code
+- Token storage separated from source directory
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `ui/app_controller.py` | Added `next_gen()`, `run_refresh()`, generation-based staleness checks in `wrapped_done`/`wrapped_error` |
+| `ui/views/dashboard.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/health_view.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/storage_view.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/cleanup_view.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/cloud_view.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/accounts_view.py` | Uses `run_refresh` with `_gen_id` |
+| `ui/views/settings_view.py` | Uses `run_refresh` with `_gen_id` |
+| `tests/test_m13_real_world_readiness.py` | New: 59 tests across 10 classes |
+
+### Tests
+
+59 new tests covering:
+- Live Tk smoke (when display available)
+- Refresh robustness (stale gen discard, shutdown
+  blocks, headless mode)
+- Stale result protection (newer wins, completed allows
+  later, failed newer doesn't corrupt)
+- Startup validation (no auth, no Ollama, no cloud)
+- Local tool validation (all tools return valid dicts)
+- Cloud safety (mocked, no implicit calls)
+- Ollama validation (unavailable gracefully handled)
+- Packaging exclusions (credentials not tracked)
+- Security regressions (no secret leaks)
+- Navigation consistency, resource path safety
+
+### Test Results
+
+770 tests pass, 0 fail, 3 skipped (2 Windows symlinks,
+1 Tk environment limitation).

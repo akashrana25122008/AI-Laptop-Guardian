@@ -13,6 +13,8 @@ class CloudView(ctk.CTkFrame):
 
         self._body = None
 
+        self._gen_id = 0
+
         self._build()
 
     def _build(self):
@@ -68,7 +70,11 @@ class CloudView(ctk.CTkFrame):
     def _load_summary_async(self):
         self._clear_body("Loading cloud data...")
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_cloud_storage,
             on_done=self._on_summary,
             on_error=self._on_error,
@@ -77,7 +83,11 @@ class CloudView(ctk.CTkFrame):
     def _load_summary(self):
         self._clear_body("Loading cloud data...")
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_cloud_storage,
             on_done=self._on_summary,
             on_error=self._on_error,
@@ -86,7 +96,11 @@ class CloudView(ctk.CTkFrame):
     def _load_large(self):
         self._clear_body("Loading large files...")
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_cloud_large_files,
             on_done=self._on_large,
             on_error=self._on_error,
@@ -95,7 +109,11 @@ class CloudView(ctk.CTkFrame):
     def _load_dup(self):
         self._clear_body("Loading duplicates...")
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_cloud_duplicates,
             on_done=self._on_dup,
             on_error=self._on_error,

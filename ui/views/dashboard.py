@@ -15,6 +15,8 @@ class DashboardView(ctk.CTkFrame):
 
         self._assistant_output = None
 
+        self._gen_id = 0
+
         self._build()
 
     def _build(self):
@@ -102,7 +104,11 @@ class DashboardView(ctk.CTkFrame):
     def refresh(self):
         self._set_cards_loading()
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_dashboard,
             on_done=self._on_loaded,
             on_error=self._on_error,
@@ -207,7 +213,9 @@ class DashboardView(ctk.CTkFrame):
         self._assistant_entry.delete(0, "end")
         self._set_assistant("Thinking...")
 
-        self.ctrl.run_in_background(
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
             lambda: self.ctrl.ask(msg),
             on_done=lambda r: self._set_assistant(str(r)),
             on_error=lambda _: self._set_assistant(
@@ -218,7 +226,9 @@ class DashboardView(ctk.CTkFrame):
     def _quick_health(self):
         self._set_assistant("Checking laptop health...")
 
-        self.ctrl.run_in_background(
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
             lambda: self.ctrl.ask(
                 "Generate a laptop health report"
             ),

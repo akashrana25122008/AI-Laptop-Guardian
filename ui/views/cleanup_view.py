@@ -24,6 +24,8 @@ class CleanupView(ctk.CTkFrame):
 
         self._status_label = None
 
+        self._gen_id = 0
+
         self._build()
 
     def _build(self):
@@ -101,7 +103,11 @@ class CleanupView(ctk.CTkFrame):
             text_color="gray",
         ).pack(padx=20, pady=30)
 
-        self.ctrl.run_in_background(
+        self._gen_id = self.ctrl.next_gen()
+
+        self.ctrl.run_refresh(
+            self,
+            self._gen_id,
             self.ctrl.get_cleanup_preview,
             on_done=self._on_preview,
             on_error=self._on_error,
@@ -197,7 +203,9 @@ class CleanupView(ctk.CTkFrame):
                 self.ctrl.confirm_cleanup_deletion()
             )
 
-        self.ctrl.run_in_background(
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
             work,
             on_done=self._on_result,
             on_error=self._on_error,

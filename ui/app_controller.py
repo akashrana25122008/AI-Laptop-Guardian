@@ -11,6 +11,7 @@ This module is fully testable without a display server.
 
 import os
 import threading
+import itertools
 
 from agent.result_contract import (
     ensure_result,
@@ -44,6 +45,8 @@ class GuardianController:
         self._root = None
 
         self._shutting_down = False
+
+        self._gen_counter = itertools.count()
 
     # =====================================================
     # NAVIGATION
@@ -679,6 +682,101 @@ class GuardianController:
                 )
             else:
                 on_done(result)
+
+        thread = threading.Thread(
+            target=worker, daemon=True
+        )
+
+        thread.start()
+
+        return thread
+
+    # =====================================================
+    # STALE-RESULT PROTECTION
+    #
+    # Rapid tab switching or repeated button presses can
+    # spawn overlapping background tasks.  ``run_refresh``
+    # wraps ``run_in_background`` with a generation counter
+    # so that stale callbacks are silently discarded and
+    # never corrupt the UI with older data.
+    # =====================================================
+
+    def next_gen(self):
+        """Return a fresh generation ID for tracking."""
+        return next(self._gen_counter)
+
+    def run_refresh(
+        self, view, gen_id, fn, on_done, on_error=None
+    ):
+        """
+        Run *fn* in a background thread with staleness
+        protection tied to *gen_id*.
+
+        The caller should bump *gen_id* (via ``next_gen``)
+        before each refresh.  If the generation has moved
+        on by the time the callback fires, the result is
+        silently discarded.
+
+        Parameters
+        ----------
+        view : object
+            The calling view instance; used for
+            ``winfo_exists()`` when a Tk root is set.
+        gen_id : int
+            The generation counter captured at refresh
+            start.
+        fn : callable
+            Work function to run in background.
+        on_done : callable
+            Called with the result on the main thread.
+        on_error : callable, optional
+            Called with the exception on the main thread.
+        """
+
+        if self._shutting_down:
+            return None
+
+        root = self._root
+
+        def wrapped_done(result):
+            if getattr(self, "_shutting_down", False):
+                return
+            if not getattr(view, "winfo_exists", None) or not view.winfo_exists():
+                return
+            if getattr(view, "_gen_id", gen_id) != gen_id:
+                return
+            on_done(result)
+
+        def wrapped_error(exc):
+            if getattr(self, "_shutting_down", False):
+                return
+            if on_error is not None:
+                if not getattr(view, "winfo_exists", None) or not view.winfo_exists():
+                    return
+                if getattr(view, "_gen_id", gen_id) != gen_id:
+                    return
+                on_error(exc)
+
+        def worker():
+            try:
+                result = fn()
+            except Exception as exc:
+                if root is not None:
+                    root.after(
+                        0,
+                        lambda e=exc: wrapped_error(e),
+                    )
+                else:
+                    wrapped_error(exc)
+                return
+
+            if root is not None:
+                root.after(
+                    0,
+                    lambda r=result: wrapped_done(r),
+                )
+            else:
+                wrapped_done(result)
 
         thread = threading.Thread(
             target=worker, daemon=True
