@@ -408,3 +408,44 @@ Milestone 10 test coverage lives in:
 
 - `tests/test_ui_controller.py` — headless controller tests
 - `tests/test_ui_security_no_auth.py` — security regression
+
+---
+
+## Milestone 11 — Real Google Drive Integration
+
+### What Changed
+
+M11 bridges the desktop UI to the real cloud backend.
+The M7-M9 backend was already complete; M11 fixes UI
+rendering bugs, adds account selection for disconnect,
+and adds comprehensive integration tests.
+
+### UI Fixes
+
+**Cloud View** (`ui/views/cloud_view.py`):
+- Fixed `result.get("entries")` → `result.get("accounts")`
+- Fixed `storage.get("used/free/total")` → `storage.get("used_bytes/free_bytes/total_bytes")`
+- Fixed `result.get("data").get("files/groups")` → `result.get("files/groups")`
+- Fixed `totals.get("used/free/total")` → `totals.get("known_used_bytes/known_free_bytes")`
+
+**Accounts View** (`ui/views/accounts_view.py`):
+- Added radio button selection per account
+- Disconnect now uses selected account instead of first account
+
+### Integration Tests
+
+`tests/test_m11_cloud_integration.py` — 31 tests covering:
+
+- OAuth flow (connect, failed OAuth, missing credentials, no secret exposure)
+- Multi-account isolation (two accounts, same filename, disconnected fails, no fallback)
+- Cloud intelligence (healthy, failing, unavailable, large files, duplicates)
+- Disconnect (exact account, unknown, token cleanup, preserves others)
+- Account listing (offline no-auth, empty)
+- Dashboard integration (account count)
+- No-auth guarantees (startup, navigation, connect button)
+- Settings version
+- Cloud view data shapes
+
+### Test Results
+
+659 tests pass, 0 fail, 2 skipped (Windows symlinks).

@@ -127,7 +127,7 @@ class CloudView(ctk.CTkFrame):
             ).pack(padx=20, pady=30)
             return
 
-        entries = result.get("entries") or []
+        entries = result.get("accounts") or []
 
         totals = result.get("totals") or {}
 
@@ -148,9 +148,9 @@ class CloudView(ctk.CTkFrame):
 
             storage = entry.get("storage") or {}
 
-            used = storage.get("used")
-            free = storage.get("free")
-            total = storage.get("total")
+            used = storage.get("used_bytes")
+            free = storage.get("free_bytes")
+            total = storage.get("total_bytes")
 
             used_str = (
                 format_bytes_short(used)
@@ -194,17 +194,19 @@ class CloudView(ctk.CTkFrame):
                 ).pack(padx=40, pady=1, anchor="w")
 
         if totals:
-            t_used = totals.get("used")
-            t_free = totals.get("free")
-            t_total = totals.get("total")
+            t_used = totals.get("known_used_bytes")
+            t_free = totals.get("known_free_bytes")
+            included = totals.get(
+                "included_account_ids"
+            ) or []
 
             ctk.CTkLabel(
                 self._body,
                 text=(
-                    f"Total:  "
+                    f"Total ({len(included)} account"
+                    f"{'s' if len(included) != 1 else ''}):  "
                     f"{format_bytes_short(t_used) if t_used is not None else '?'} used  |  "
-                    f"{format_bytes_short(t_free) if t_free is not None else '?'} free  |  "
-                    f"{format_bytes_short(t_total) if t_total is not None else '?'} total"
+                    f"{format_bytes_short(t_free) if t_free is not None else '?'} free"
                 ),
                 font=ctk.CTkFont(
                     size=12, weight="bold"
@@ -231,8 +233,7 @@ class CloudView(ctk.CTkFrame):
             return
 
         files = (
-            (result.get("data") or {})
-            .get("files") or []
+            result.get("files") or []
         )[:15]
 
         if not files:
@@ -279,8 +280,7 @@ class CloudView(ctk.CTkFrame):
             return
 
         groups = (
-            (result.get("data") or {})
-            .get("groups") or []
+            result.get("groups") or []
         )[:15]
 
         if not groups:

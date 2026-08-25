@@ -23,6 +23,8 @@ class AccountsView(ctk.CTkFrame):
 
         self._pending_account = None
 
+        self._selected_account_id = None
+
         self._build()
 
     def _build(self):
@@ -131,6 +133,10 @@ class AccountsView(ctk.CTkFrame):
             ).pack(padx=20, pady=30)
             return
 
+        self._selected_account_id = None
+
+        var = ctk.StringVar(value="")
+
         for idx, acc in enumerate(accounts, 1):
             if not isinstance(acc, dict):
                 continue
@@ -144,23 +150,34 @@ class AccountsView(ctk.CTkFrame):
 
             status = acc.get("status", "")
 
+            acc_id = acc.get("id", "")
+
             row = ctk.CTkFrame(self._body)
 
             row.pack(
                 padx=20, pady=4, fill="x",
             )
 
-            ctk.CTkLabel(
+            ctk.CTkRadioButton(
                 row,
                 text=(
-                    f"{idx}. {label}  —  {email}  |  "
-                    f"{status}"
+                    f"{idx}. {label}  —  "
+                    f"{email}  |  {status}"
                 ),
+                variable=var,
+                value=str(acc_id),
                 font=ctk.CTkFont(size=12),
                 anchor="w",
             ).pack(
                 padx=12, pady=8, side="left",
             )
+
+        def _on_select(*_args):
+            self._selected_account_id = (
+                var.get() or None
+            )
+
+        var.trace_add("write", _on_select)
 
     def _connect(self):
         self._status_label.configure(
@@ -213,6 +230,15 @@ class AccountsView(ctk.CTkFrame):
         )
 
     def _confirm_disconnect(self):
+        if not self._selected_account_id:
+            self._status_label.configure(
+                text=(
+                    "Select an account first by clicking "
+                    "its radio button."
+                ),
+            )
+            return
+
         accounts_data = (
             self.ctrl.get_accounts()
         )
@@ -223,22 +249,35 @@ class AccountsView(ctk.CTkFrame):
             else None
         ) or []
 
-        if not accounts:
+        target = None
+
+        for acc in accounts:
+            if (
+                isinstance(acc, dict)
+                and acc.get("id")
+                == self._selected_account_id
+            ):
+                target = acc
+                break
+
+        if target is None:
             self._status_label.configure(
-                text="No connected accounts to disconnect."
+                text="Selected account not found."
             )
             return
 
-        target = accounts[0]
-
-        email = target.get("email", target.get("id"))
+        email = target.get(
+            "email", target.get("id")
+        )
 
         self._status_label.configure(
             text=f"Requesting disconnect of {email}...",
         )
 
         def work():
-            return self.ctrl.request_disconnect(email)
+            return self.ctrl.request_disconnect(
+                email
+            )
 
         self.ctrl.run_in_background(
             work,

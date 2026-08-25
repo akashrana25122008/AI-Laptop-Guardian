@@ -620,7 +620,7 @@ class GuardianController:
             "model": model,
             "ollama_status": ollama_status,
             "token_dir": token_dir,
-            "version": "Milestone 10",
+            "version": "Milestone 11",
             "theme": "System",
         }
 
