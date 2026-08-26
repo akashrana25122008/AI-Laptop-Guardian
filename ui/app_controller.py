@@ -50,6 +50,63 @@ class GuardianController:
         self._gen_counter = itertools.count()
 
     # =====================================================
+    # ONBOARDING STATUS
+    # =====================================================
+
+    def get_onboarding_status(self):
+        """Return safe status info for the onboarding display.
+
+        No OAuth, no network calls, no secrets exposed.
+        """
+        from app.version import __version__
+
+        ollama_status = "Not available"
+        ollama_available = False
+
+        try:
+            from ollama import list as ollama_list
+            models = ollama_list()
+            names = [
+                m.get("name", "")
+                for m in models.get("models", [])
+            ]
+            if names:
+                ollama_status = f"Available ({len(names)} model{'s' if len(names) != 1 else ''})"
+                ollama_available = True
+            else:
+                ollama_status = "Running (no models installed)"
+                ollama_available = True
+        except Exception:
+            ollama_status = "Not available"
+
+        google_status = "Not connected"
+        try:
+            accounts_data = ensure_result(
+                self.agent.router.execute("cloud_accounts"),
+                "cloud_accounts",
+            )
+            acc_list = (
+                accounts_data.get("accounts")
+                if isinstance(accounts_data, dict)
+                else None
+            ) or []
+            if acc_list:
+                google_status = (
+                    f"Connected ({len(acc_list)} account"
+                    f"{'s' if len(acc_list) != 1 else ''})"
+                )
+        except Exception:
+            pass
+
+        return {
+            "version": __version__,
+            "ollama_status": ollama_status,
+            "ollama_available": ollama_available,
+            "google_status": google_status,
+            "local_storage": "Available",
+        }
+
+    # =====================================================
     # NAVIGATION
     # =====================================================
 
@@ -626,12 +683,39 @@ class GuardianController:
         except Exception:
             ollama_status = "Unavailable"
 
+        # Cloud accounts count — safe, no secrets.
+
+        account_count = 0
+        try:
+            accounts_data = ensure_result(
+                self.agent.router.execute("cloud_accounts"),
+                "cloud_accounts",
+            )
+            acc_list = (
+                accounts_data.get("accounts")
+                if isinstance(accounts_data, dict)
+                else None
+            ) or []
+            account_count = len(acc_list)
+        except Exception:
+            pass
+
+        # Onboarding state.
+
+        try:
+            import app.state as state_mod
+            onboarding_done = state_mod.is_onboarding_completed()
+        except Exception:
+            onboarding_done = False
+
         return {
             "model": model,
             "ollama_status": ollama_status,
             "token_dir": token_dir,
             "version": __version__,
             "theme": "System",
+            "account_count": account_count,
+            "onboarding_completed": onboarding_done,
         }
 
     # =====================================================

@@ -1,5 +1,7 @@
 import customtkinter as ctk
 
+from ui.components import safe_text
+
 
 class DashboardView(ctk.CTkFrame):
     """Summary cards + assistant chat."""
@@ -54,9 +56,16 @@ class DashboardView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             panel,
-            text="Assistant",
+            text="AI Assistant",
             font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(padx=12, pady=(10, 4), anchor="w")
+
+        ctk.CTkLabel(
+            panel,
+            text="Ask about your laptop in plain English",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+        ).pack(padx=12, anchor="w")
 
         self._assistant_output = ctk.CTkTextbox(
             panel, height=80, state="disabled",
@@ -64,7 +73,7 @@ class DashboardView(ctk.CTkFrame):
         )
 
         self._assistant_output.pack(
-            padx=12, pady=(0, 8), fill="x",
+            padx=12, pady=(4, 8), fill="x",
         )
 
         row = ctk.CTkFrame(
@@ -101,6 +110,13 @@ class DashboardView(ctk.CTkFrame):
             command=self._quick_health,
         ).pack(side="left")
 
+        ctk.CTkButton(
+            quick,
+            text="Check storage",
+            width=160,
+            command=self._quick_storage,
+        ).pack(side="left", padx=(8, 0))
+
     def refresh(self):
         self._set_cards_loading()
 
@@ -131,9 +147,20 @@ class DashboardView(ctk.CTkFrame):
         for w in self._cards_frame.winfo_children():
             w.destroy()
 
-        for idx, card in enumerate(
-            data.get("cards") or []
-        ):
+        cards = data.get("cards") if isinstance(data, dict) else None
+
+        if not cards:
+            ctk.CTkLabel(
+                self._cards_frame,
+                text="Dashboard data is temporarily unavailable.",
+                text_color="gray",
+            ).pack(padx=20, pady=30)
+            return
+
+        for idx, card in enumerate(cards):
+            if not isinstance(card, dict):
+                continue
+
             r, c = divmod(idx, 3)
 
             self._cards_frame.grid_columnconfigure(
@@ -150,6 +177,8 @@ class DashboardView(ctk.CTkFrame):
             ok = card.get("ok")
 
             color = "#2fa572" if ok else "#c0392b"
+
+            status_indicator = "OK" if ok else "!"
 
             ctk.CTkLabel(
                 f, text=card.get("label", "?"),
@@ -172,10 +201,17 @@ class DashboardView(ctk.CTkFrame):
                     text_color="gray",
                     wraplength=200,
                 ).pack(
-                    padx=12, pady=(0, 10), anchor="w",
+                    padx=12, pady=(0, 6), anchor="w",
                 )
 
-        status = data.get("status", "")
+            ctk.CTkLabel(
+                f,
+                text=f"[{status_indicator}]",
+                font=ctk.CTkFont(size=10),
+                text_color=color,
+            ).pack(padx=12, pady=(0, 10), anchor="w")
+
+        status = data.get("status", "") if isinstance(data, dict) else ""
 
         if status:
             self.event_generate(
@@ -191,7 +227,10 @@ class DashboardView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._cards_frame,
-            text="Unable to load dashboard data.\nPlease try again.",
+            text=(
+                "Unable to load dashboard data.\n"
+                "Please try again."
+            ),
             text_color="#c0392b",
         ).pack(padx=20, pady=30)
 
@@ -217,9 +256,12 @@ class DashboardView(ctk.CTkFrame):
             self,
             self.ctrl.next_gen(),
             lambda: self.ctrl.ask(msg),
-            on_done=lambda r: self._set_assistant(str(r)),
+            on_done=lambda r: self._set_assistant(
+                safe_text(str(r), "No response received.")
+            ),
             on_error=lambda _: self._set_assistant(
-                "Unable to get a response."
+                "Unable to get a response. "
+                "Please check that Ollama is running."
             ),
         )
 
@@ -232,8 +274,29 @@ class DashboardView(ctk.CTkFrame):
             lambda: self.ctrl.ask(
                 "Generate a laptop health report"
             ),
-            on_done=lambda r: self._set_assistant(str(r)),
+            on_done=lambda r: self._set_assistant(
+                safe_text(str(r), "No health data available.")
+            ),
             on_error=lambda _: self._set_assistant(
-                "Unable to check health."
+                "Unable to check health. "
+                "Please try again later."
+            ),
+        )
+
+    def _quick_storage(self):
+        self._set_assistant("Checking storage...")
+
+        self.ctrl.run_refresh(
+            self,
+            self.ctrl.next_gen(),
+            lambda: self.ctrl.ask(
+                "Show me my local storage usage"
+            ),
+            on_done=lambda r: self._set_assistant(
+                safe_text(str(r), "No storage data available.")
+            ),
+            on_error=lambda _: self._set_assistant(
+                "Unable to check storage. "
+                "Please try again later."
             ),
         )

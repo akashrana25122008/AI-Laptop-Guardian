@@ -74,6 +74,10 @@ class GuardianApp(ctk.CTk):
 
         self._shutting_down = False
 
+        self._onboarding_mode = False
+
+        self._onboarding_container = None
+
         self._build_layout()
 
         self._bind_status_event()
@@ -95,18 +99,18 @@ class GuardianApp(ctk.CTk):
 
         # --- Sidebar ---
 
-        sidebar = ctk.CTkFrame(
+        self._sidebar = ctk.CTkFrame(
             self, width=180, corner_radius=0
         )
 
-        sidebar.grid(
+        self._sidebar.grid(
             row=0, column=0, sticky="nsew",
         )
 
-        sidebar.grid_propagate(False)
+        self._sidebar.grid_propagate(False)
 
         ctk.CTkLabel(
-            sidebar,
+            self._sidebar,
             text="AI LAPTOP\nGUARDIAN",
             font=ctk.CTkFont(
                 size=13, weight="bold"
@@ -116,7 +120,7 @@ class GuardianApp(ctk.CTk):
 
         for key, label in NAV_ITEMS:
             btn = ctk.CTkButton(
-                sidebar,
+                self._sidebar,
                 text=label,
                 anchor="w",
                 height=38,
@@ -192,8 +196,112 @@ class GuardianApp(ctk.CTk):
     # =====================================================
 
     def _show_initial_view(self):
-        self.show_view("dashboard")
+        import app.state as state_mod
 
+        if not state_mod.is_onboarding_completed():
+            self._show_onboarding()
+            return
+
+        self._show_main_ui()
+
+    # =====================================================
+    # ONBOARDING MODE
+    # =====================================================
+
+    def _show_onboarding(self):
+        self._onboarding_mode = True
+
+        for child in self._content.winfo_children():
+            child.grid_forget()
+
+        for btn in self._nav_buttons.values():
+            btn.pack_forget()
+
+        self._sidebar.winfo_children()[0].pack_forget()
+        for btn in list(self._nav_buttons.values()):
+            btn.pack_forget()
+        for child in self._sidebar.winfo_children():
+            child.pack_forget()
+
+        ctk.CTkLabel(
+            self._sidebar,
+            text="AI LAPTOP\nGUARDIAN",
+            font=ctk.CTkFont(
+                size=13, weight="bold"
+            ),
+            pady=18,
+        ).pack(fill="x")
+
+        self._onboarding_container = ctk.CTkFrame(
+            self._content, fg_color="transparent"
+        )
+        self._onboarding_container.grid(
+            row=0, column=0, sticky="nsew",
+        )
+
+        from ui.views.onboarding_view import OnboardingView
+
+        OnboardingView(
+            self._onboarding_container,
+            self.ctrl,
+            on_finish=self._on_onboarding_finish,
+        ).pack(fill="both", expand=True)
+
+    def _on_onboarding_finish(self):
+        self._onboarding_mode = False
+
+        if self._onboarding_container:
+            self._onboarding_container.destroy()
+            self._onboarding_container = None
+
+        self._show_main_ui()
+
+    def _show_main_ui(self):
+        for child in self._content.winfo_children():
+            child.grid_forget()
+
+        self._rebuild_sidebar_nav()
+
+        self._show_initial_view_after_onboarding()
+
+    def _rebuild_sidebar_nav(self):
+        for child in self._sidebar.winfo_children():
+            child.pack_forget()
+
+        ctk.CTkLabel(
+            self._sidebar,
+            text="AI LAPTOP\nGUARDIAN",
+            font=ctk.CTkFont(
+                size=13, weight="bold"
+            ),
+            pady=18,
+        ).pack(fill="x")
+
+        self._nav_buttons.clear()
+
+        for key, label in NAV_ITEMS:
+            btn = ctk.CTkButton(
+                self._sidebar,
+                text=label,
+                anchor="w",
+                height=38,
+                corner_radius=6,
+                fg_color="transparent",
+                text_color="gray80",
+                hover_color=("gray75", "gray25"),
+                command=lambda k=key: (
+                    self.show_view(k)
+                ),
+            )
+
+            btn.pack(
+                fill="x", padx=10, pady=2,
+            )
+
+            self._nav_buttons[key] = btn
+
+    def _show_initial_view_after_onboarding(self):
+        self.show_view("dashboard")
         self._status_var.set("Status: Ready")
 
     def show_view(self, key):

@@ -721,3 +721,149 @@ before the first widget is drawn.
 
 828 tests pass, 0 fail, 3 skipped (2 Windows symlinks,
 1 Tk environment limitation).
+
+---
+
+## Milestone 15 — First-Run Experience & Product UX
+
+### What Changed
+
+M15 transforms AI Laptop Guardian from a developer-only
+tool into a product that a normal first-time Windows user
+can understand and use.
+
+### First-Run Onboarding
+
+`ui/views/onboarding_view.py` presents a 4-step wizard
+on first launch:
+
+1. **Welcome** — what Guardian does, feature overview
+2. **Privacy** — local-only analysis, explicit cloud
+   consent, confirmation-gated cleanup, credential
+   protection
+3. **Setup Status** — Ollama, Google Drive, local
+   storage, version
+4. **Finish** — "Get Started" button
+
+No OAuth, network calls, or credential access occurs
+during onboarding.  Both Ollama and Google Drive are
+presented as optional.
+
+### First-Run State
+
+`app/state.py` manages onboarding preferences as
+non-sensitive JSON in `<user_data_dir>/preferences.json`:
+
+- `onboarding_completed` (bool)
+- `onboarding_version` (int)
+
+Never stores OAuth tokens, client secrets, passwords,
+or cloud credentials.  Safe when file is missing,
+malformed, unreadable, or partially written.
+
+### Onboarding Gate
+
+`ui/app.py` checks `app.state.is_onboarding_completed()`
+at startup.  If false, the onboarding wizard is shown
+before the main 7-view navigation.  After completion,
+the normal Dashboard appears.
+
+### Safe Error Messages
+
+`ui/components.py` adds user-facing message helpers:
+
+- `safe_backend_message(exc)` — never exposes raw
+  exception details
+- `safe_account_count(accounts)` — friendly count
+- `safe_ollama_message(status)` — clear status text
+- `safe_cloud_message(result)` — safe cloud failure text
+- `safe_connect_message(result)` — safe connect result
+
+### Settings UX
+
+`ui/views/settings_view.py` now displays:
+
+- **Appearance** — theme selector
+- **Application** — version, onboarding status
+- **AI Assistant** — Ollama status (with explanation
+  that it's optional), model info
+- **Cloud** — connected account count, token storage
+- **Privacy** — 4 privacy guarantees
+
+### Dashboard UX
+
+`ui/views/dashboard.py` improvements:
+
+- Cards show status indicator `[OK]`/`[!]` with color
+- Safe text rendering for all card values
+- Added "Check storage" quick action
+- Assistant section labeled "AI Assistant" with
+  descriptive placeholder
+- Error messages say "Please try again" instead of
+  exposing exceptions
+
+### Accounts UX
+
+`ui/views/accounts_view.py` improvements:
+
+- Shows account count: "N Google account(s) connected"
+- Shows account isolation explanation
+- Uses `safe_account_count()` for zero/one/multiple
+- Uses `safe_connect_message()` for connect results
+- Safe identity display (display name + email)
+
+### Cloud UX
+
+`ui/views/cloud_view.py` improvements:
+
+- Button labels: "Check storage summary", "Find large
+  files", "Find duplicates" (plain English)
+- Uses `safe_cloud_message()` for failure display
+- Safe error text instead of raw exception messages
+- Empty state says "Go to Accounts to connect"
+
+### Ollama UX
+
+- Settings shows "Ollama is available and ready",
+  "Ollama is not available", or "Ollama is running but
+  no AI models are installed"
+- Onboarding shows availability status
+- Dashboard assistant errors say "Please check that
+  Ollama is running"
+- Application remains fully usable without Ollama
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `app/state.py` | New: first-run state management |
+| `ui/views/onboarding_view.py` | New: 4-step onboarding wizard |
+| `ui/app.py` | Onboarding gate, sidebar rebuild |
+| `ui/app_controller.py` | Added `get_onboarding_status()`, `get_settings()` expanded with `account_count`, `onboarding_completed` |
+| `ui/components.py` | Added safe message helpers |
+| `ui/views/settings_view.py` | Application/AI/Cloud/Privacy sections |
+| `ui/views/dashboard.py` | Status indicators, safe text, quick actions |
+| `ui/views/accounts_view.py` | Account count, isolation explanation, safe messages |
+| `ui/views/cloud_view.py` | Plain-English buttons, safe error messages |
+| `tests/test_m15_first_run_ux.py` | New: 62 M15 tests |
+
+### Tests
+
+62 new tests covering:
+
+- First-run state (load, save, malformed, missing, roundtrip)
+- Onboarding status (dict, version, ollama, google, no secrets)
+- OAuth safety (startup, onboarding, dashboard, settings)
+- Ollama UX (available, unavailable, no models, None, settings)
+- Dashboard UX (cards, zero accounts, failed backend)
+- Accounts UX (count zero/one/multiple/None)
+- Cloud UX (messages for None, failed, auth error, success)
+- Settings UX (version, account count, onboarding, ollama, no secrets)
+- Error handling (backend message, safe text)
+- Security regression (no tracked creds, no secrets in state/components/onboarding/app)
+- M14 compatibility (version, paths, env_check, logging, spec, build script)
+- Navigation consistency
+
+### Test Results
+
+875 tests pass, 0 fail, 2 skipped (Windows symlinks).

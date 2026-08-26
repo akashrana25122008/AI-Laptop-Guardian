@@ -1,6 +1,10 @@
 import customtkinter as ctk
 
-from ui.components import format_bytes_short, safe_text
+from ui.components import (
+    format_bytes_short,
+    safe_text,
+    safe_cloud_message,
+)
 
 
 class CloudView(ctk.CTkFrame):
@@ -50,17 +54,17 @@ class CloudView(ctk.CTkFrame):
         )
 
         ctk.CTkButton(
-            btn_row, text="Load storage summary",
+            btn_row, text="Check storage summary",
             command=self._load_summary,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btn_row, text="Load large files",
+            btn_row, text="Find large files",
             command=self._load_large,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            btn_row, text="Load duplicates",
+            btn_row, text="Find duplicates",
             command=self._load_dup,
         ).pack(side="left")
 
@@ -94,7 +98,7 @@ class CloudView(ctk.CTkFrame):
         )
 
     def _load_large(self):
-        self._clear_body("Loading large files...")
+        self._clear_body("Finding large files...")
 
         self._gen_id = self.ctrl.next_gen()
 
@@ -107,7 +111,7 @@ class CloudView(ctk.CTkFrame):
         )
 
     def _load_dup(self):
-        self._clear_body("Loading duplicates...")
+        self._clear_body("Finding duplicates...")
 
         self._gen_id = self.ctrl.next_gen()
 
@@ -143,8 +147,9 @@ class CloudView(ctk.CTkFrame):
         ):
             ctk.CTkLabel(
                 self._body,
-                text="Cloud data unavailable.",
+                text=safe_cloud_message(result),
                 text_color="#c0392b",
+                wraplength=550,
             ).pack(padx=20, pady=30)
             return
 
@@ -155,7 +160,12 @@ class CloudView(ctk.CTkFrame):
         if not entries:
             ctk.CTkLabel(
                 self._body,
-                text="No cloud accounts connected.",
+                text=(
+                    "No cloud accounts connected.\n"
+                    "Go to Accounts to connect a "
+                    "Google Drive account."
+                ),
+                wraplength=550,
             ).pack(padx=20, pady=30)
             return
 
@@ -208,7 +218,7 @@ class CloudView(ctk.CTkFrame):
             for err in errors:
                 ctk.CTkLabel(
                     self._body,
-                    text=f"   ⚠ {safe_text(err)}",
+                    text=f"   {safe_text(err)}",
                     text_color="#c0392b",
                     font=ctk.CTkFont(size=11),
                     anchor="w",
@@ -251,8 +261,12 @@ class CloudView(ctk.CTkFrame):
         ):
             ctk.CTkLabel(
                 self._body,
-                text="Cloud large-file data unavailable.",
+                text=(
+                    "Cloud large-file information is "
+                    "temporarily unavailable."
+                ),
                 text_color="#c0392b",
+                wraplength=550,
             ).pack(padx=20, pady=30)
             return
 
@@ -301,8 +315,12 @@ class CloudView(ctk.CTkFrame):
         ):
             ctk.CTkLabel(
                 self._body,
-                text="Cloud duplicate data unavailable.",
+                text=(
+                    "Cloud duplicate information is "
+                    "temporarily unavailable."
+                ),
                 text_color="#c0392b",
+                wraplength=550,
             ).pack(padx=20, pady=30)
             return
 
@@ -313,7 +331,7 @@ class CloudView(ctk.CTkFrame):
         if not groups:
             ctk.CTkLabel(
                 self._body,
-                text="No cloud duplicate candidates.",
+                text="No cloud duplicate candidates found.",
             ).pack(padx=20, pady=30)
             return
 
@@ -347,6 +365,9 @@ class CloudView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._body,
-            text="Unable to load cloud data.\nPlease try again.",
+            text=(
+                "Unable to load cloud data.\n"
+                "Please try again."
+            ),
             text_color="#c0392b",
         ).pack(padx=20, pady=30)

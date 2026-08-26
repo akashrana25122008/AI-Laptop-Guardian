@@ -1,6 +1,6 @@
 import customtkinter as ctk
 
-from ui.components import safe_text
+from ui.components import safe_text, safe_account_count, safe_connect_message
 
 
 class AccountsView(ctk.CTkFrame):
@@ -131,6 +131,27 @@ class AccountsView(ctk.CTkFrame):
             else None
         ) or []
 
+        ctk.CTkLabel(
+            self._body,
+            text=safe_account_count(accounts),
+            font=ctk.CTkFont(size=12),
+            text_color="gray",
+        ).pack(padx=20, pady=(10, 4), anchor="w")
+
+        ctk.CTkLabel(
+            self._body,
+            text=(
+                "You can connect multiple Google Drive "
+                "accounts. Guardian keeps accounts isolated "
+                "and never silently chooses another account "
+                "for a destructive action."
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=550,
+            justify="left",
+        ).pack(padx=20, pady=(0, 10), anchor="w")
+
         if not accounts:
             ctk.CTkLabel(
                 self._body,
@@ -139,7 +160,7 @@ class AccountsView(ctk.CTkFrame):
                     "Click '+ Connect Google Account' "
                     "to start."
                 ),
-            ).pack(padx=20, pady=30)
+            ).pack(padx=20, pady=20)
             return
 
         self._selected_account_id = None
@@ -150,16 +171,26 @@ class AccountsView(ctk.CTkFrame):
             if not isinstance(acc, dict):
                 continue
 
-            label = acc.get(
-                "label",
-                f"Account {idx}",
+            display_name = acc.get(
+                "display_name",
+                acc.get("label", ""),
             )
 
             email = acc.get("email", "")
 
+            account_id = acc.get("id", "")
+
             status = acc.get("status", "")
 
-            acc_id = acc.get("id", "")
+            if display_name and email:
+                label_text = f"{idx}. {display_name} ({email})"
+            elif email:
+                label_text = f"{idx}. {email}"
+            else:
+                label_text = f"{idx}. Account {account_id}"
+
+            if status:
+                label_text += f"  [{status}]"
 
             row = ctk.CTkFrame(self._body)
 
@@ -169,12 +200,9 @@ class AccountsView(ctk.CTkFrame):
 
             ctk.CTkRadioButton(
                 row,
-                text=(
-                    f"{idx}. {label}  —  "
-                    f"{email}  |  {status}"
-                ),
+                text=label_text,
                 variable=var,
-                value=str(acc_id),
+                value=str(account_id),
                 font=ctk.CTkFont(size=12),
                 anchor="w",
             ).pack(
@@ -208,32 +236,12 @@ class AccountsView(ctk.CTkFrame):
         if not self.winfo_exists():
             return
 
-        if isinstance(result, dict):
-            success = result.get("success")
+        msg = safe_connect_message(result)
 
-            account = result.get("account") or {}
+        self._status_label.configure(text=msg)
 
-            if success:
-                self._status_label.configure(
-                    text=(
-                        f"Connected: "
-                        f"{account.get('email', '?')}"
-                    ),
-                )
-
-                self._reload_async()
-
-                return
-
-        msg = (
-            result.get("error", "Unknown error")
-            if isinstance(result, dict)
-            else "Connection did not complete."
-        )
-
-        self._status_label.configure(
-            text=f"Connection failed: {safe_text(msg)}",
-        )
+        if isinstance(result, dict) and result.get("success"):
+            self._reload_async()
 
     def _disconnect(self):
         self._status_label.configure(
