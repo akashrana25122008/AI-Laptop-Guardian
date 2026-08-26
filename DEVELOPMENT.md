@@ -948,6 +948,125 @@ M15 stored theme only in-memory. M16 adds:
 
 1052 tests pass, 0 fail, 2 skipped.
 
+## Milestone 24 — Controlled Live Google Drive Mutation Validation
+
+M24 validates REAL cloud mutations against a dedicated test account.
+This is the first milestone with complete live mutation test coverage
+(gated behind dual environment variables).
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `tests/test_m24_live_mutation_validation.py` | New: 67 M24 validation tests (38 automated + 29 live-gated) |
+
+### Live Test Gating (Non-Negotiable)
+
+All live tests require BOTH environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `AI_GUARDIAN_LIVE_GOOGLE=1` | Enables live Google tests |
+| `AI_GUARDIAN_LIVE_GOOGLE_TEST_ACCOUNT` | Specifies the test account (email or account-id) |
+
+Without BOTH variables:
+- All 29 M24 live tests skip
+- No OAuth browser opens
+- No Google Drive network call occurs
+- No upload/download/delete occurs
+
+### Test Artifact Safety
+
+All test artifacts use uniquely-prefixed filenames:
+`M24-<timestamp>-<random>-test-artifact.txt`
+
+- Never operates on arbitrary user files
+- Never deletes pre-existing files
+- Only M24-created artifacts are mutated
+- Cleanup only targets exact M24 artifacts by file ID
+
+### Live OAuth Connection (4 tests)
+
+- Explicit connect starts OAuth only after explicit request
+- OAuth completes successfully with dedicated test account
+- AccountRegistry receives the account
+- Token is stored in isolated account location
+- Token contents are NEVER printed
+
+### Real Upload Validation (4 tests)
+
+- Creates uniquely-named M24 test artifact
+- Uploads via account-bound path
+- Verifies upload succeeds with correct metadata
+- Verifies file ID is captured for later operations
+
+### Real Search Validation (4 tests)
+
+- Searches for exact M24 test filename
+- Verifies result belongs to expected account
+- Verifies exact file ID matches uploaded file
+- Empty query fails safely
+
+### Real Download Validation (3 tests)
+
+- Downloads using exact file ID
+- Verifies downloaded content matches known payload
+- Download is bound to correct account
+
+### Real Delete/Trash Validation (5 tests)
+
+Full ActionSafety confirmation flow tested:
+
+1. Proposal alone does NOT delete
+2. Cancel does NOT delete
+3. Wrong confirmation does NOT delete
+4. Confirm → execute → file trashed
+5. Trashed file no longer searchable
+
+### Disconnect/Reconnect Safety (2 tests)
+
+- Disconnect account mid-mutation → deletion fails safely
+- Old account IDs not silently reassigned
+
+### Failure Modes (5 tests)
+
+- Wrong file ID → fails safely
+- Wrong account → fails safely
+- Empty file ID → fails safely
+- Stale proposal (after cancel) → cannot execute
+- New file cannot substitute into existing proposal
+
+### Automated Non-Live Tests (38 tests)
+
+- Live gating verification
+- No implicit auth on import/construction
+- ActionSafety confirmation architecture (8 tests)
+- Account isolation (5 tests)
+- Filename uniqueness
+- Security audit (14 tests) including AST-based scan
+
+### How to Run Live Mutation Tests
+
+```powershell
+$env:AI_GUARDIAN_LIVE_GOOGLE=1
+$env:AI_GUARDIAN_LIVE_GOOGLE_TEST_ACCOUNT="your-email@gmail.com"
+python -m pytest tests/test_m24_live_mutation_validation.py -v
+```
+
+### Why Ordinary pytest Never Mutates Google Drive
+
+Running `pytest` without environment configuration:
+- All 38 M24 automated tests pass (no Google needed)
+- All 29 M24 live tests skip (no env vars → no OAuth → no mutation)
+- No credentials inspection, no network calls, no Drive data modification
+
+### Test Results
+
+1439 tests pass, 97 skipped (29 M24 + 25 M23 + 32 M22 + 9 M21 + 2 environment).
+
+No real OAuth occurred. No real upload/download/delete occurred
+(live tests skipped without environment configuration).
+
 ## Milestone 23 — Controlled Real Google Drive Mutation Validation
 
 M23 validates REAL cloud mutations (upload, search, download,
