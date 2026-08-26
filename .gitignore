@@ -20,3 +20,7 @@ reports/
 build/
 dist/
 *.spec.bak
+
+# Installer output
+installer_output/
+installer/*.ico
