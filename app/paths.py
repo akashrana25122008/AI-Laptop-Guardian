@@ -11,9 +11,12 @@ import os
 
 def _is_frozen():
     """Return True when running inside a PyInstaller bundle."""
-    return getattr(sys, "frozen", False) and hasattr(
-        sys, "_MEIPASS"
-    )
+    return getattr(sys, "frozen", False)
+
+
+def _is_onefile():
+    """Return True when inside a PyInstaller --onefile bundle."""
+    return _is_frozen() and hasattr(sys, "_MEIPASS")
 
 
 def app_root():
@@ -21,10 +24,12 @@ def app_root():
 
     In source mode this is the project root (the directory
     containing the ``app/`` package).  In packaged mode it
-    is the PyInstaller ``_MEIPASS`` temp directory.
+    is the PyInstaller bundle directory.
     """
-    if _is_frozen():
+    if _is_onefile():
         return sys._MEIPASS
+    if _is_frozen():
+        return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.dirname(__file__))
 
 

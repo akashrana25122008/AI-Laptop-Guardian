@@ -994,6 +994,51 @@ users. No new features added.
 
 ---
 
+## Milestone 20 — Clean-Machine / Fresh-Environment Validation
+
+Validates that the application works correctly on a clean Windows
+machine where no prior development state exists.
+
+### Critical Bug Fixed
+
+`_is_frozen()` in `app/paths.py` previously checked
+`hasattr(sys, '_MEIPASS')` which is only set in `--onefile`
+mode. The project uses `--onedir` mode (COLLECT). This caused
+the installed exe to run in "source mode" paths, writing logs
+and state to `cloud_data/` in the source directory instead of
+`%LOCALAPPDATA%\AI-Laptop-Guardian`.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `app/paths.py` | Fixed `_is_frozen()` to check only `getattr(sys, "frozen", False)`. Added `_is_onefile()` helper. `app_root()` handles both onedir (`dirname(sys.executable)`) and onefile (`sys._MEIPASS`) modes. |
+| `tests/test_m20_clean_machine_validation.py` | New: 65 clean-machine validation tests |
+
+### What was verified
+
+- **Frozen path resolution**: `_is_frozen()` checks only `sys.frozen`, not `_MEIPASS`; `_is_onefile()` exists; `app_root()` handles both modes
+- **Installed exe data separation**: exe exists in dist; user data dir differs from install dir; user data is under `%LOCALAPPDATA%`
+- **Onboarding fresh state**: onboarding view exists, has wizard, state module has preferences, app checks onboarding
+- **Ollama absent behavior**: env check marks ollama optional, controller handles failure, not required for startup, settings shows status
+- **Local functionality**: all 5 tool directories (cpu, ram, battery, storage, health) exist; tool router exists with execute; cleanup tool exists
+- **Cleanup safety**: action_safety has propose/confirm; cleanup has preview/scan
+- **Accounts UX**: accounts_view, auth_manager exist; no auto-connect
+- **Settings view**: exists, displays version, has theme selector
+- **Restart persistence**: state loads/saves preferences, has atomic writes
+- **Uninstall/reinstall**: installer has uninstall, does not delete user data, privileges lowest
+- **Security**: no secrets tracked, gitignore excludes cloud_data, state no oauth, logging no passwords, no implicit auth
+- **Process validation**: exe exists, dist has internal dir, size reasonable
+- **Error recovery**: run_gui has error boundary, user messages, shutdown handler, safe defaults
+- **M19 fixes preserved**: logging namespace correct, google imports optional, no console, run_gui entry, build script exists
+- **No real mutations**: no real cloud delete, no real cleanup, no real OAuth in tests
+
+### Test Results
+
+1213 tests pass, 0 fail, 2 skipped.
+
+---
+
 ## Milestone 17 — Real Windows Executable End-to-End Validation
 
 Validates the actual packaged Windows application for real-world
