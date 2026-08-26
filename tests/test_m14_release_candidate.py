@@ -242,7 +242,9 @@ class TestPackagingConfig(unittest.TestCase):
         )
         spec = os.path.join(root, "AI-Laptop-Guardian.spec")
         content = open(spec, encoding="utf-8").read()
-        self.assertIn("main.py", content)
+        self.assertTrue(
+            "main.py" in content or "run_gui.py" in content
+        )
 
     def test_build_script_is_valid_python(self):
         root = os.path.dirname(

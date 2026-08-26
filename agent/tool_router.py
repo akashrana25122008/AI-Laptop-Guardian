@@ -3,12 +3,20 @@ from agent.result_contract import (
     sanitize_error,
 )
 
-from cloud.google_drive import GoogleDriveProvider
-from cloud.multi_drive import MultiAccountDriveManager
-from cloud.cloud_intelligence import (
-    CloudStorageIntelligence,
-)
-from cloud.auth_manager import GoogleAuthManager
+try:
+    from cloud.google_drive import GoogleDriveProvider
+    from cloud.multi_drive import MultiAccountDriveManager
+    from cloud.cloud_intelligence import (
+        CloudStorageIntelligence,
+    )
+    from cloud.auth_manager import GoogleAuthManager
+    _HAS_GOOGLE = True
+except ImportError:
+    _HAS_GOOGLE = False
+    GoogleDriveProvider = None
+    MultiAccountDriveManager = None
+    CloudStorageIntelligence = None
+    GoogleAuthManager = None
 
 from tools.battery.battery import BatteryTool
 from tools.cpu.cpu import CPUTool
@@ -92,49 +100,25 @@ class ToolRouter:
         # GOOGLE DRIVE
         # =====================================================
 
-        self.google_drive = GoogleDriveProvider()
+        if _HAS_GOOGLE:
+            self.google_drive = GoogleDriveProvider()
 
-        # =====================================================
-        # MULTI-ACCOUNT GOOGLE DRIVE
-        #
-        # The legacy single-account provider above stays the
-        # default so all existing behavior is preserved.
-        # Account-aware operations go through drive_manager,
-        # where every operation names its exact account.
-        # =====================================================
+            self.drive_manager = MultiAccountDriveManager()
 
-        self.drive_manager = MultiAccountDriveManager()
-
-        # =====================================================
-        # CLOUD STORAGE INTELLIGENCE (READ-ONLY)
-        #
-        # Deterministic cross-account analysis built on the
-        # multi-account manager. This layer never mutates
-        # cloud data. It is kept in sync with drive_manager
-        # (see the cloud_intelligence property below) so a
-        # replaced manager can never leave stale analysis.
-        # =====================================================
-
-        self._cloud_intelligence = (
-            CloudStorageIntelligence(
-                self.drive_manager
+            self._cloud_intelligence = (
+                CloudStorageIntelligence(
+                    self.drive_manager
+                )
             )
-        )
 
-        # =====================================================
-        # GOOGLE ACCOUNT CONNECTION (EXPLICIT ONLY)
-        #
-        # OAuth starts ONLY when the user explicitly asks
-        # to connect a Google account. Constructing the
-        # router, listing accounts, or running local tools
-        # never authenticates anything. Like the layers
-        # above, this binding follows the live drive
-        # manager.
-        # =====================================================
-
-        self._auth_manager = GoogleAuthManager(
-            drive_manager=self.drive_manager
-        )
+            self._auth_manager = GoogleAuthManager(
+                drive_manager=self.drive_manager
+            )
+        else:
+            self.google_drive = None
+            self.drive_manager = None
+            self._cloud_intelligence = None
+            self._auth_manager = None
 
     @property
     def auth_manager(self):
@@ -143,15 +127,20 @@ class ToolRouter:
         drive manager, rebuilding if it was replaced.
         """
 
+        if self._auth_manager is None:
+            return None
+
         if (
-            self._auth_manager is None
-            or self._auth_manager.drive_manager
+            self._auth_manager.drive_manager
             is not self.drive_manager
         ):
 
-            self._auth_manager = GoogleAuthManager(
-                drive_manager=self.drive_manager
-            )
+            if _HAS_GOOGLE:
+                self._auth_manager = GoogleAuthManager(
+                    drive_manager=self.drive_manager
+                )
+            else:
+                return None
 
         return self._auth_manager
 
@@ -160,24 +149,24 @@ class ToolRouter:
         """
         Return the intelligence layer bound to the CURRENT
         drive manager.
-
-        If drive_manager was replaced (tests, future
-        account reloads), the binding is rebuilt so
-        analytics always inspect live accounts and never a
-        detached snapshot.
         """
 
+        if self._cloud_intelligence is None:
+            return None
+
         if (
-            self._cloud_intelligence is None
-            or self._cloud_intelligence.manager
+            self._cloud_intelligence.manager
             is not self.drive_manager
         ):
 
-            self._cloud_intelligence = (
-                CloudStorageIntelligence(
-                    self.drive_manager
+            if _HAS_GOOGLE:
+                self._cloud_intelligence = (
+                    CloudStorageIntelligence(
+                        self.drive_manager
+                    )
                 )
-            )
+            else:
+                return None
 
         return self._cloud_intelligence
 
@@ -261,6 +250,14 @@ class ToolRouter:
         # =====================================================
 
         if tool == "cloud_search":
+            if self.google_drive is None:
+                return {
+                    "success": False,
+                    "tool": "cloud_search",
+                    "error": "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features.",
+                }
             return self._run_tool(
                 "cloud_search",
                 self.google_drive.search_files,
@@ -300,6 +297,14 @@ class ToolRouter:
         # =====================================================
 
         if tool == "cloud_upload":
+            if self.google_drive is None:
+                return {
+                    "success": False,
+                    "tool": "cloud_upload",
+                    "error": "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features.",
+                }
             return self._run_tool(
                 "cloud_upload",
                 self.google_drive.upload_file,
@@ -311,6 +316,14 @@ class ToolRouter:
         # =====================================================
 
         if tool == "cloud_download":
+            if self.google_drive is None:
+                return {
+                    "success": False,
+                    "tool": "cloud_download",
+                    "error": "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features.",
+                }
             return self._run_tool(
                 "cloud_download",
                 self.google_drive.download_file,
@@ -322,6 +335,14 @@ class ToolRouter:
         # =====================================================
 
         if tool == "cloud_delete":
+            if self.google_drive is None:
+                return {
+                    "success": False,
+                    "tool": "cloud_delete",
+                    "error": "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features.",
+                }
             return self._run_tool(
                 "cloud_delete",
                 self._delete_google_drive_file,
@@ -444,6 +465,17 @@ class ToolRouter:
                 ),
             }
 
+        if self.drive_manager is None and self.google_drive is None:
+            return {
+                "success": False,
+                "tool": "cloud_delete",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
+
         if account_id:
 
             return (
@@ -482,6 +514,17 @@ class ToolRouter:
             - otherwise a needs_selection result listing
               accounts (never a silent pick).
         """
+
+        if self.drive_manager is None:
+            return {
+                "success": False,
+                "tool": "cloud_search",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
 
         account_ids = None
 
@@ -559,6 +602,17 @@ class ToolRouter:
         account.
         """
 
+        if self.drive_manager is None:
+            return {
+                "success": False,
+                "tool": "cloud_download",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
+
         return self.drive_manager.download_from_account(
             account_id,
             file_id,
@@ -571,6 +625,9 @@ class ToolRouter:
     def describe_connected_accounts(self):
         """Safe metadata list of connected accounts."""
 
+        if self.drive_manager is None:
+            return []
+
         return self.drive_manager.describe_accounts()
 
     def resolve_account(self, selector):
@@ -578,6 +635,9 @@ class ToolRouter:
         Resolve an account reference (number / id / email)
         to its safe metadata record, or None.
         """
+
+        if self.drive_manager is None:
+            return None
 
         account = (
             self.drive_manager.registry.resolve_selector(
@@ -608,6 +668,17 @@ class ToolRouter:
             - multiple accounts without a choice ->
               needs_selection (never a silent pick).
         """
+
+        if self.cloud_intelligence is None:
+            return {
+                "success": False,
+                "tool": "cloud_storage",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
 
         if selector is not None:
 
@@ -671,6 +742,17 @@ class ToolRouter:
         their contents are never read.
         """
 
+        if self.cloud_intelligence is None:
+            return {
+                "success": False,
+                "tool": "cloud_large_files",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
+
         account_ids = None
 
         if selector is not None:
@@ -733,6 +815,17 @@ class ToolRouter:
         never treated as confirmed duplicates. Nothing is
         ever deleted or modified by this operation.
         """
+
+        if self.cloud_intelligence is None:
+            return {
+                "success": False,
+                "tool": "cloud_duplicates",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
 
         account_ids = None
 
@@ -799,6 +892,18 @@ class ToolRouter:
         and never exposes tokens or credential files.
         """
 
+        if self.auth_manager is None:
+            return {
+                "success": True,
+                "tool": "cloud_accounts",
+                "accounts": [],
+                "message": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
+
         return self.auth_manager.get_auth_status()
 
     def execute_google_connect(self):
@@ -812,6 +917,17 @@ class ToolRouter:
         setup hint without ever reading or exposing the
         file contents.
         """
+
+        if self.auth_manager is None:
+            return {
+                "success": False,
+                "tool": "cloud_connect",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
 
         result = self.auth_manager.connect_account()
 
@@ -843,6 +959,17 @@ class ToolRouter:
         deletes cloud files and never touches other
         accounts.
         """
+
+        if self.auth_manager is None or self.drive_manager is None:
+            return {
+                "success": False,
+                "tool": "cloud_disconnect",
+                "error": (
+                    "Google Drive is not available. "
+                    "Install Google dependencies to enable "
+                    "cloud features."
+                ),
+            }
 
         if selector is None or not str(selector).strip():
 

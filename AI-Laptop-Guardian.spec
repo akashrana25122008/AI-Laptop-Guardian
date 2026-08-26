@@ -43,7 +43,7 @@ HIDDEN_IMPORTS = [
 ]
 
 a = Analysis(
-    ["main.py"],
+    ["run_gui.py"],
     pathex=[],
     binaries=[],
     datas=[],

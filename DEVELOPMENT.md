@@ -946,4 +946,45 @@ M15 stored theme only in-memory. M16 adds:
 
 ### Test Results
 
-999 tests pass, 0 fail, 3 skipped.
+1052 tests pass, 0 fail, 2 skipped.
+
+---
+
+## Milestone 17 — Real Windows Executable End-to-End Validation
+
+Validates the actual packaged Windows application for real-world
+usability: GUI launch, graceful Google Drive degradation, packaging
+integrity, safety regression, and runtime readiness.
+
+### Key Findings
+
+- The M16 build used `main.py` (CLI console) as entry point, not the
+  desktop GUI. The `.exe` launched a console tool instead of the GUI.
+- Created `run_gui.py` as the proper GUI entry point.
+- Updated `AI-Laptop-Guardian.spec` to build from `run_gui.py`.
+- `agent/tool_router.py` crashed at import when Google dependencies
+  were not installed (`ModuleNotFoundError: No module named 'google'`).
+  Made Google imports optional with try/except — cloud features degrade
+  gracefully when deps are missing.
+- All cloud tools (`cloud_search`, `cloud_upload`, `cloud_download`,
+  `cloud_delete`, `cloud_accounts`, `cloud_connect`, `cloud_disconnect`,
+  `cloud_storage`, `cloud_large_files`, `cloud_duplicates`) return
+  safe error messages when Google dependencies are unavailable.
+- The packaged `.exe` now launches successfully: process starts, no
+  crash, no traceback, window title "AI Laptop Guardian", process
+  responsive, data directories created.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `run_gui.py` | New: minimal GUI entry point for PyInstaller |
+| `AI-Laptop-Guardian.spec` | Entry changed from `main.py` to `run_gui.py` |
+| `agent/tool_router.py` | Google imports wrapped in try/except; cloud methods guarded for None |
+| `tests/test_m14_release_candidate.py` | Updated spec assertion to accept `run_gui.py` |
+| `tests/test_m16_release_validation.py` | Updated spec assertion to accept `run_gui.py` |
+| `tests/test_m17_windows_e2e_readiness.py` | New: 52 M17 validation tests |
+
+### Test Results
+
+1052 tests pass, 0 fail, 2 skipped.

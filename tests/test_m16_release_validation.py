@@ -247,7 +247,9 @@ class TestPackagingIntegrity(unittest.TestCase):
     def test_spec_references_main(self):
         spec = PROJECT_ROOT / "AI-Laptop-Guardian.spec"
         content = spec.read_text(encoding="utf-8")
-        self.assertIn("main.py", content)
+        self.assertTrue(
+            "main.py" in content or "run_gui.py" in content
+        )
 
     def test_spec_excludes_test_frameworks(self):
         spec = PROJECT_ROOT / "AI-Laptop-Guardian.spec"
