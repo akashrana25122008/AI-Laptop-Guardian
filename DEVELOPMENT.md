@@ -948,6 +948,64 @@ M15 stored theme only in-memory. M16 adds:
 
 1052 tests pass, 0 fail, 2 skipped.
 
+## Milestone 22 — Controlled Real Google Drive E2E Validation
+
+M22 performs controlled, real-Google-account end-to-end validation
+of the Google Drive integration. All cloud operations are READ-ONLY.
+No production code was changed.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `tests/test_m22_real_google_e2e.py` | New: 69 M22 validation tests (37 automated + 32 live-gated) |
+
+### What was verified (automated, no live Google)
+
+- **No implicit auth**: importing all modules, creating ToolRouter, creating auth_manager, planning cloud queries never triggers OAuth
+- **Token isolation**: path pattern verified, per-account token files, pending uses uuid, atomic replacement, tokens never printed
+- **Intelligence read-only**: read-only docstring, format_size exists, _to_int returns None
+- **Provider failure handling**: describe_accounts empty, search with no accounts, disconnect nonexistent account
+- **M20 paths preserved**: _is_frozen no _MEIPASS, _is_onefile exists
+- **M19 logging preserved**: namespace correct, no password in logging
+- **M6 cleanup safety**: action_safety exists, requires confirmation
+- **Security audit**: no secrets tracked, gitignore excludes cloud_data, protected projects untouched, version consistent, no network in UI, action_safety unchanged, no dangerous calls in test file (AST-based)
+- **No destructive operations**: AST scan confirms no delete_file_by_id, upload_file, delete, or trash calls
+
+### What was NOT tested live
+
+- Real OAuth browser flow (requires interactive browser consent)
+- Real account registration with a Google account
+- Real storage quota retrieval
+- Real file search on Google Drive
+- Real large-file analysis
+- Real duplicate candidate detection
+- Cloud intelligence with real account data
+- GuardianController cloud methods with real account
+- Disconnect/reconnect with real accounts
+- Multi-account isolation with two real accounts
+
+### How to enable live tests
+
+```powershell
+$env:AI_GUARDIAN_LIVE_GOOGLE=1
+python -m pytest tests/test_m22_real_google_e2e.py -v
+```
+
+Without the flag, live tests skip cleanly — no OAuth browser
+opens and no network authentication occurs.
+
+### Restrictions
+
+- All live Google Drive operations are READ-ONLY
+- No uploads, deletes, trashes, moves, renames, or permission changes
+- No credentials, tokens, or secrets in test output
+- Test file is AST-scanned for destructive operations
+
+### Test Results
+
+1370 tests pass, 0 fail, 43 skipped (32 M22 live tests + 9 M21 live + 2 environment skips).
+
 ---
 
 ## Milestone 19 - Release Hardening
