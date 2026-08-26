@@ -708,12 +708,20 @@ class GuardianController:
         except Exception:
             onboarding_done = False
 
+        # Theme — persisted preference.
+
+        try:
+            import app.state as state_mod
+            theme = state_mod.get_theme()
+        except Exception:
+            theme = "System"
+
         return {
             "model": model,
             "ollama_status": ollama_status,
             "token_dir": token_dir,
             "version": __version__,
-            "theme": "System",
+            "theme": theme,
             "account_count": account_count,
             "onboarding_completed": onboarding_done,
         }

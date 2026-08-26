@@ -99,6 +99,8 @@ class SettingsView(ctk.CTkFrame):
 
         def on_theme(choice):
             ctk.set_appearance_mode(choice)
+            import app.state as state_mod
+            state_mod.set_theme(choice)
 
         ctk.CTkOptionMenu(
             theme_row,

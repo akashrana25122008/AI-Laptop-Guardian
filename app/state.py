@@ -16,16 +16,39 @@ from app.paths import user_data_dir
 
 _STATE_VERSION = 1
 
+_VALID_THEMES = {"System", "Light", "Dark"}
+
 _DEFAULT_STATE = {
     "state_version": _STATE_VERSION,
     "onboarding_completed": False,
     "onboarding_version": 0,
+    "theme": "System",
 }
 
 
 def _state_path():
     """Return the path to the preferences JSON file."""
     return os.path.join(user_data_dir(), "preferences.json")
+
+
+def _sanitize_theme(value):
+    """Return a valid theme string or 'System'."""
+    if isinstance(value, str) and value in _VALID_THEMES:
+        return value
+    return "System"
+
+
+def get_theme():
+    """Return the persisted theme preference."""
+    state = load()
+    return _sanitize_theme(state.get("theme"))
+
+
+def set_theme(theme):
+    """Persist a theme preference."""
+    state = load()
+    state["theme"] = _sanitize_theme(theme)
+    return save(state)
 
 
 def load():
@@ -75,6 +98,9 @@ def save(state):
         ),
         "onboarding_version": int(
             state.get("onboarding_version", 0)
+        ),
+        "theme": _sanitize_theme(
+            state.get("theme", "System")
         ),
     }
 

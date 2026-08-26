@@ -866,4 +866,84 @@ the normal Dashboard appears.
 
 ### Test Results
 
-875 tests pass, 0 fail, 2 skipped (Windows symlinks).
+999 tests pass, 0 fail, 2 skipped (Windows symlinks).
+
+---
+
+## Milestone 16 — Real-World Windows Release Validation
+
+Validates the application for real Windows users: PyInstaller build,
+packaged app launch, onboarding, returning-user behavior, navigation,
+local functionality, Ollama UX, Google Drive safety, user-data separation,
+theme persistence (fix M15 limitation), error recovery, logging validation,
+and release artifact integrity.
+
+### What Changed
+
+- Theme preference is now persisted across sessions via `app/state.py`
+- `get_theme()` / `set_theme()` added to `app/state.py`
+- Settings view saves theme selection to state
+- `ui/app.py` applies persisted theme on startup
+- `GuardianController.get_settings()` reads persisted theme
+
+### Theme Persistence (M15 Fix)
+
+M15 stored theme only in-memory. M16 adds:
+
+- `app/state.py`: `_VALID_THEMES`, `get_theme()`, `set_theme()`, `_sanitize_theme()`
+- Theme stored in `preferences.json` alongside onboarding state
+- Settings view writes theme via `state_mod.set_theme()`
+- Startup reads theme via `state_mod.get_theme()`
+- Invalid theme values fall back to "System"
+
+### Build Validation
+
+- PyInstaller folder-based build via `AI-Laptop-Guardian.spec`
+- Build script `scripts/build_windows.py` runs clean → build → report
+- 31.9 MB release artifact verified in `dist/AI-Laptop-Guardian/`
+- No credentials, tokens, `.env`, `cloud_data/`, or `.git` in build
+- DLLs bundled in `_internal/` directory
+
+### Validation Results
+
+- `python -m compileall` — all source compiles cleanly
+- `python scripts/validate_imports.py` — 13/13 modules import OK
+- `pip check` — no broken dependencies
+- `git ls-files` — no tracked credential or token files
+- Protected projects (`D:\AI-Laptop-Guardian`, `D:\AI-Laptop-Guardian-Backup`) unchanged
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `app/state.py` | Added `theme` to state, `get_theme()`, `set_theme()`, `_sanitize_theme()`, `_VALID_THEMES` |
+| `ui/app.py` | Apply persisted theme on startup via `state_mod.get_theme()` |
+| `ui/app_controller.py` | `get_settings()` reads persisted theme instead of hardcoded "System" |
+| `ui/views/settings_view.py` | Theme selection saves via `state_mod.set_theme()` |
+| `tests/test_m16_release_validation.py` | New: 125 M16 release validation tests |
+
+### Tests
+
+125 new tests covering:
+
+- Theme persistence (get/set/sanitize/roundtrip, default, validity, cross-field safety)
+- Packaging integrity (spec, build script, dist contents, no sensitive files, size)
+- Onboarding flow (gate, state transitions, version tracking, booleans)
+- Navigation model (7 views, keys, uniqueness)
+- Version and environment (semver, env checks, data dirs)
+- Local functionality (all 7 tools callable)
+- Result contract (passthrough, wrap, sanitize, truncation)
+- Action safety (propose, confirm, reject, cancel, replace)
+- Cleanup safety (preview, items, action gate)
+- Tool routing (all tools registered and callable)
+- Security regressions (no tracked creds, no secrets in state/components/gitignore)
+- Lifecycle defaults (required keys, types, never-raise guarantees)
+- Module structure (all imports verified)
+- Protected projects (paths exist)
+- Build artifact integrity (exe, dist, gitignore coverage)
+- Controller `get_settings()` (all keys, theme, no secrets)
+- UI theme layer (controller reads persisted theme, settings saves theme)
+
+### Test Results
+
+999 tests pass, 0 fail, 3 skipped.

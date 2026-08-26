@@ -48,6 +48,9 @@ class GuardianApp(ctk.CTk):
     def __init__(self, controller=None):
         super().__init__()
 
+        import app.state as state_mod
+        ctk.set_appearance_mode(state_mod.get_theme())
+
         self.ctrl = (
             controller or GuardianController()
         )
