@@ -948,6 +948,136 @@ M15 stored theme only in-memory. M16 adds:
 
 1052 tests pass, 0 fail, 2 skipped.
 
+## Milestone 23 — Controlled Real Google Drive Mutation Validation
+
+M23 validates REAL cloud mutations (upload, search, download,
+delete) against explicitly designated test data. This is the first
+milestone that performs real Google Drive mutations.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `tests/test_m23_real_google_mutations.py` | New: 56 M23 validation tests (31 automated + 25 live-gated) |
+
+### Controlled Live Mutation Model
+
+All live tests require TWO environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `AI_GUARDIAN_LIVE_GOOGLE=1` | Enables live Google tests |
+| `AI_GUARDIAN_LIVE_GOOGLE_TEST_ACCOUNT` | Specifies the test account (email or account-id) |
+
+Without BOTH variables, no OAuth browser opens, no network
+authentication occurs, and no Drive data is modified.
+
+### Test Artifact Naming
+
+All test artifacts use uniquely-prefixed filenames:
+`M23-<timestamp>-test-artifact.txt`
+
+This ensures:
+- No collision with existing user files
+- No ambiguous search results
+- Exact identification for cleanup
+
+### Upload Validation (Live)
+
+- Creates a uniquely-named M23 test artifact locally
+- Uploads via account-bound `GoogleDriveProvider.upload_file()`
+- Verifies upload succeeded with correct metadata
+- Verifies file exists in Drive (searchable by exact ID)
+- Verifies file ID is captured exactly
+
+### Search Validation (Live)
+
+- Searches for the exact M23 test filename
+- Verifies result belongs to expected account
+- Verifies exact file ID matches the uploaded file
+- Verifies no ambiguous results
+
+### Download Validation (Live)
+
+- Downloads using exact file ID via `execute_download_bound()`
+- Verifies downloaded content matches the known test payload
+- Verifies download is bound to correct account
+
+### Delete/Trash Validation (Live)
+
+The full ActionSafety confirmation flow is tested:
+
+1. Create proposal → verify file still exists
+2. Cancel → verify file still exists
+3. Wrong confirmation → verify file still exists
+4. Confirm → execute deletion → verify file trashed
+5. Verify trashed file no longer appears in search
+
+The test proves:
+- Proposal alone does NOT delete
+- Cancel does NOT delete
+- Wrong confirmation does NOT delete
+- Confirmation is repeatable until `clear()`
+- New proposals replace old ones
+
+### Disconnect/Reconnect Safety (Live)
+
+- Disconnect account mid-mutation → deletion fails safely
+- Reconnect → normal operations resume
+
+### Failure/Stale Target Tests (Live)
+
+- Wrong file ID → fails safely
+- Wrong account → fails safely
+- Empty query → fails safely
+- Stale proposal (after cancel) → cannot execute
+- New file cannot substitute into existing proposal
+
+### Automated Non-Live Tests (31 tests)
+
+- No implicit auth on import/construction
+- No mutation without live flag
+- No mutation without account config
+- ActionSafety confirmation gating (propose, confirm, cancel, clear)
+- Account isolation (bound operations reject wrong account)
+- Security audit (no secrets tracked, protected projects untouched)
+- AST-based dangerous call detection (scope-aware)
+- No network in UI/cloud layer
+
+### Why Ordinary pytest Never Mutates Google Drive
+
+Running `pytest` without environment configuration:
+- All 31 M23 automated tests pass (no Google needed)
+- All 25 M23 live tests skip (no env vars → no OAuth → no mutation)
+- No credentials.json inspection
+- No network calls
+- No Drive data modification
+
+### How to Run Live Mutation Tests
+
+```powershell
+$env:AI_GUARDIAN_LIVE_GOOGLE=1
+$env:AI_GUARDIAN_LIVE_GOOGLE_TEST_ACCOUNT="your-email@gmail.com"
+python -m pytest tests/test_m23_real_google_mutations.py -v
+```
+
+### Restrictions
+
+- All mutations use uniquely-named M23 test artifacts
+- No arbitrary user files are ever mutated
+- No credentials, tokens, or secrets in test output
+- Cleanup only targets M23-created artifacts
+- ActionSafety confirmation remains mandatory
+- Account binding remains mandatory
+
+### Test Results
+
+1400 tests pass (1 pre-existing tkinter skip), 68 skipped
+(25 M23 live + 32 M22 live + 9 M21 live + 2 environment).
+
+No real OAuth occurred. No real upload/download/delete occurred
+(live tests skipped without environment configuration).
+
 ## Milestone 22 — Controlled Real Google Drive E2E Validation
 
 M22 performs controlled, real-Google-account end-to-end validation
