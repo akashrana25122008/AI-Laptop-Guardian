@@ -948,6 +948,50 @@ M15 stored theme only in-memory. M16 adds:
 
 1052 tests pass, 0 fail, 2 skipped.
 
+## Milestone 25 — Final Production Release Acceptance
+
+M25 is the final release-readiness validation. It performs
+comprehensive acceptance testing: version consistency, build
+artifact integrity, security invariants, documentation presence,
+packaging correctness, and safety regression checks across all
+previous milestones. No production code was changed.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `tests/test_m25_final_release_acceptance.py` | New: 105 M25 acceptance tests |
+
+### What was verified
+
+- **Version consistency**: `app/version.py` == `.iss` display version == `.iss` internal version == README
+- **Build artifacts**: PyInstaller dist exists, exe is 1-100 MB, `_internal` present
+- **Installer artifacts**: Setup.exe exists, 1-50 MB, correct versioned filename
+- **PyInstaller config**: `console=False`, entry is `run_gui.py`, excludes numpy/torch/unittest/pytest
+- **Sensitive file exclusions**: no credentials, tokens, .env, .pyc, .git, cloud_data, venv, or test files in dist
+- **Gitignore protections**: excludes credentials.json, token.json, .env, cloud_data/, dist/, installer_output/
+- **Inno Setup config**: `PrivilegesRequired=lowest`, `{localappdata}` install path, LZMA compression
+- **Module integrity**: all 16 application modules import cleanly (app.*, agent.*, tools.*, cloud.*)
+- **ActionSafety invariants**: propose_delete, validate_confirmation, cancel, clear, account_id support
+- **Cloud safety**: no implicit auth on GoogleAuthManager init, describe_accounts returns [], account registry stores only safe metadata
+- **Path separation**: `_is_frozen()`, `_is_onefile()`, `app_root()` functional
+- **Ollama optional**: ToolRouter imports cleanly, ollama module available
+- **Logging security**: namespace is `ai_laptop_guardian`, no password leaks
+- **Documentation**: README.md, DEVELOPMENT.md, requirements.txt all present with correct version
+- **Security audit**: AST-based scan confirms no dangerous calls (delete, upload, trash, network) in test file
+- **Milestone regression**: M7 (accounts, multi-drive), M15 (planner), M16 (run_gui), M18 (spec), M19 (error boundary, logging), M20 (frozen paths) all hold
+- **Integration smoke**: ToolRouter, ActionSafety, Planner, GoogleAuthManager, state.load() all construct and function
+- **Critical files**: all 26 essential source/config files verified present
+- **Build artifact sizes**: exe (6.0 MB), installer (23.0 MB) in reasonable ranges
+- **Protected projects**: `D:\AI-Laptop-Guardian` exists and untouched
+
+### Test Results
+
+1543 tests pass, 0 fail, 98 skipped (29 M24 + 25 M23 + 32 M22 + 9 M21 + 3 environment).
+
+No production code was changed. No cloud operations performed.
+Build artifacts verified (PyInstaller + Inno Setup).
+
 ## Milestone 24 — Controlled Live Google Drive Mutation Validation
 
 M24 validates REAL cloud mutations against a dedicated test account.
