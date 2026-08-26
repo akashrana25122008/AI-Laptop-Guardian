@@ -1039,7 +1039,71 @@ and state to `cloud_data/` in the source directory instead of
 
 ---
 
-## Milestone 17 — Real Windows Executable End-to-End Validation
+## Milestone 21 — Validate Real Google Drive Integration
+
+M21 validates the EXISTING Google Drive architecture (M7-M9)
+against real-world constraints and adds comprehensive test
+coverage. No backend architecture was changed.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `tests/test_m21_real_google_drive.py` | New: 120 M21 validation tests (12 automated + 9 live-gated) |
+
+### What was verified (automated, no live Google)
+
+- **Auth manager architecture**: explicit-only OAuth, no implicit auth on import/init, module-level lazy imports, disconnect is account-bound, PendingAuthentication hides provider
+- **Multi-drive isolation**: session dict per account, bound operation pattern, no global active state, factory uses isolated token, lazy session creation, disconnect drops session, tag match preserves identity
+- **Cloud intelligence read-only**: read-only docstring, no mutations, format_size deterministic, _to_int returns None for unknown, per-account failure tracking
+- **Account registry safety**: stores only safe metadata, token_ref is reference only, safe_label, idempotent registration, disconnected IDs not reused, safe defaults on corrupt file
+- **Tool router cloud dispatch**: Google imports optional, cloud None-guarded, connect/disconnect explicit, search uses scoped method, intelligence methods exist, no implicit auth on init
+- **Planner routing**: cloud explicit pattern, connect/disconnect/account-ref patterns, local drive blocks cloud, storage topic pattern, cloud large files/storage/duplicates routing
+- **No implicit auth**: importing all modules, creating ToolRouter, creating auth_manager, planning cloud queries, local queries never route to cloud
+- **Token isolation**: path pattern verified, per-account token files, pending uses uuid, atomic replacement, tokens never printed
+- **Intelligence contracts**: format_size for bytes/KB/MB/GB, summarize with no accounts, large files, duplicate candidates
+- **Provider failure handling**: Google None returns error, auth_manager without drive_manager, disconnect nonexistent account, search with no accounts, describe_accounts empty, intel with failing account
+- **M20/M19/M18/M15/M6 preserved**: frozen path fix, logging namespace, installer config, onboarding, action safety
+- **Security audit**: no network code in UI/views, protected projects unchanged, no git push in tests, no secrets tracked, gitignore excludes, state no oauth, logging safe, components safe, action_safety unchanged
+- **No destructive operations**: no real delete, upload, or trash in test file
+
+### What was NOT tested live
+
+- Real OAuth browser flow (requires interactive browser consent)
+- Real account registration with a Google account
+- Real storage quota retrieval
+- Real file search on Google Drive
+- Real large-file analysis
+- Real duplicate candidate detection
+- Disconnect/reconnect with real accounts
+- Multi-account isolation with two real accounts
+
+### How to enable live tests
+
+```powershell
+$env:AI_GUARDIAN_LIVE_GOOGLE=1
+python -m pytest tests/test_m21_real_google_drive.py -v
+```
+
+Without the flag, live tests skip cleanly — no OAuth browser
+opens and no network authentication occurs.
+
+### Required Google setup (for live tests)
+
+1. `credentials.json` in project root (Google OAuth client)
+2. Google API client libraries installed (`pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client`)
+3. `AI_GUARDIAN_LIVE_GOOGLE=1` environment variable
+
+### Restrictions
+
+- All live Google Drive operations are READ-ONLY
+- No uploads, deletes, trashes, moves, renames, or permission changes
+- No credentials, tokens, or secrets in test output
+- Test file is self-auditing for destructive operations
+
+### Test Results
+
+1333 tests pass, 0 fail, 11 skipped (9 M21 live tests skipped without flag).
 
 Validates the actual packaged Windows application for real-world
 usability: GUI launch, graceful Google Drive degradation, packaging
