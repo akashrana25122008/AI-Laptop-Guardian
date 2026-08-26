@@ -950,6 +950,50 @@ M15 stored theme only in-memory. M16 adds:
 
 ---
 
+## Milestone 19 - Release Hardening
+
+M19 hardens the existing M18 application/installer for real
+users. No new features added.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `run_gui.py` | Added error boundary: catches startup exceptions, logs them safely, shows a user-friendly message via `tkinter.messagebox`, calls `setup_logging()` |
+| `app/logging_setup.py` | Fixed logger namespace typo: `algebra_guardian` -> `ai_laptop_guardian` |
+| `tests/test_m19_release_hardening.py` | New: 62 release-hardening validation tests |
+
+### What was verified
+
+- Version `0.14.0` is consistent across `app/version.py`, `installer/ai_laptop_guardian.iss`, and all build/config files
+- Dist directory contains no credentials, tokens, .env, .git, tests, or dev files
+- `run_gui.py` has an error boundary that catches unexpected exceptions, logs them, and shows a safe user-facing dialog
+- `run_gui.py` initializes logging on startup
+- Logging format never contains passwords, tokens, or credentials
+- Logger namespace is `ai_laptop_guardian` (not `algebra_guardian`)
+- Controller does not log tokens
+- UI import of `customtkinter` raises `SystemExit` with a clear message when missing
+- Background threads and shutdown handlers catch exceptions properly
+- Installer uses `DelTree` only on `{app}` directory, never on user-data paths
+- Installer uses `PrivilegesRequired=lowest` (no admin needed)
+- Install dir (`%LOCALAPPDATA%\Programs\AI-Laptop-Guardian`) differs from user-data dir (`%LOCALAPPDATA%\AI-Laptop-Guardian`)
+- State module never stores OAuth tokens, credentials, or secrets
+- State module returns safe defaults on corrupted/missing files
+- Google imports remain optional in `tool_router.py`
+- Ollama remains optional
+- No implicit OAuth at startup
+- Git tracked files contain no secrets
+- `.gitignore` excludes cloud_data, .env, installer_output
+- M17 fixes (run_gui.py entry point, optional Google imports) remain intact
+- M18 fixes (installer config, shortcuts, build script) remain intact
+- ActionSafety and cleanup confirmation unchanged
+
+### Test Results
+
+1148 tests pass, 0 fail, 2 skipped.
+
+---
+
 ## Milestone 17 — Real Windows Executable End-to-End Validation
 
 Validates the actual packaged Windows application for real-world

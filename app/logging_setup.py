@@ -43,4 +43,4 @@ def setup_logging(level=logging.INFO):
 
 def get_logger(name):
     """Return a child logger under the application namespace."""
-    return logging.getLogger(f"algebra_guardian.{name}")
+    return logging.getLogger(f"ai_laptop_guardian.{name}")
